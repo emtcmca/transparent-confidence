@@ -854,5 +854,5 @@ These exact scenarios must pass at the Phase 4 gate and remain passing through P
 | 3 | Optional Extensions | ✅ Complete |
 | 4 | Scorer + Public API | ✅ Complete |
 | 5 | Examples | ✅ Complete |
-| 6 | README + Documentation | — |
+| 6 | README + Documentation | ✅ Complete |
 | 7 | CI/CD + Publish | — |
