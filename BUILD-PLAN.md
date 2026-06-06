@@ -853,6 +853,6 @@ These exact scenarios must pass at the Phase 4 gate and remain passing through P
 | 2 | Core Dimensions | ✅ Complete |
 | 3 | Optional Extensions | ✅ Complete |
 | 4 | Scorer + Public API | ✅ Complete |
-| 5 | Examples | — |
+| 5 | Examples | ✅ Complete |
 | 6 | README + Documentation | — |
 | 7 | CI/CD + Publish | — |
