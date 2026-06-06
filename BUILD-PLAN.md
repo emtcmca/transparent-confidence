@@ -162,11 +162,14 @@ Average `combinedScore` of top 3 candidates. If `extractionQuality` is provided 
 
 ### Dimension 3 — Evidence Consistency (max 10 raw pts)
 
-**Inputs:** `candidates[].combinedScore`, `conflictingCandidateCount`
+**Inputs:** `candidates[].combinedScore`, `conflictingCandidateCount`, `hasConflict`
+
+Max 10 is achievable: variance < 0.10 (8 pts) + no conflict bonus (+2 pts) = 10.
+`conflictingCandidateCount` takes precedence over boolean `hasConflict` when both provided.
 
 #### Sub-signal A — Score Variance (0–8)
 
-Standard deviation of `combinedScore` across all candidates:
+Population standard deviation of `combinedScore` across all candidates:
 
 | Condition | Points |
 |---|---|
@@ -177,14 +180,14 @@ Standard deviation of `combinedScore` across all candidates:
 | std dev < 0.30 | 4 |
 | std dev ≥ 0.30 | 2 |
 
-#### Sub-signal B — Conflict Penalty (floor 0)
+#### Sub-signal B — Conflict Status (−2 to +2, floor 0 on total)
 
-| Condition | Penalty |
+| Condition | Adjustment |
 |---|---|
-| Not provided or 0 | 0 |
-| 1 of N candidates | −2 |
-| 2+ of N candidates | −4 |
-| All candidates conflict (or boolean `hasConflict=true`, no count given) | −5 |
+| `conflictingCandidateCount = 0` or no conflict indicators | +2 |
+| `conflictingCandidateCount = 1` | 0 |
+| `conflictingCandidateCount ≥ 2` | −2 |
+| `hasConflict = true` (boolean fallback, no count given) | −2 |
 
 ---
 
@@ -536,11 +539,12 @@ C:\Dev\transparent-confidence\
 - 3 unique `documentId` values → +3 source diversity points applied
 
 *Consistency:*
-- 5 candidates, std dev < 0.10, no conflict → `raw = 8`
-- 1 candidate → `raw = 4`
+- 5 candidates, std dev < 0.10, no conflict → `raw = 10` (8 variance + 2 no-conflict bonus)
+- 5 candidates, std dev < 0.10, `conflictingCandidateCount:2` → `raw = 6` (8 − 2)
+- 1 candidate, no conflict → `raw = 6` (4 neutral + 2 bonus)
 - 0 candidates → `raw = 0`
-- `conflictingCandidateCount:2` → penalty −4, floor 0
-- std dev ≥ 0.30, `conflictingCandidateCount:1` → `raw = max(0, 2 − 2) = 0`
+- `conflictingCandidateCount:1` → neutral adj (0), variance score only
+- std dev ≥ 0.30, `conflictingCandidateCount:2` → `raw = max(0, 2 − 2) = 0`
 
 *Normalize:*
 - `normalize(65, 65)` → `100`
