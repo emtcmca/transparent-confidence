@@ -127,7 +127,11 @@ describe('scoreGrounding — queryComplexity ceiling', () => {
 
   test('ceiling not applied when score already below ceiling', () => {
     // medium confidence (13) + multi-hop ceiling (18) — 13 < 18, no cap
-    const result = scoreGrounding({ ...base, confidenceLevel: 'medium', queryComplexity: 'multi-hop' });
+    const result = scoreGrounding({
+      ...base,
+      confidenceLevel: 'medium',
+      queryComplexity: 'multi-hop',
+    });
     expect(result.raw).toBe(13);
   });
 });

@@ -28,34 +28,22 @@ describe('scoreAuthority — no candidates', () => {
 
 describe('scoreAuthority — base scores', () => {
   test('min rank ≤ 10 → base 18', () => {
-    const result = scoreAuthority(
-      { ...base, candidates: [candidate(10)] },
-      defaultConfig,
-    );
+    const result = scoreAuthority({ ...base, candidates: [candidate(10)] }, defaultConfig);
     expect(result.raw).toBe(18);
   });
 
   test('min rank ≤ 20 → base 13', () => {
-    const result = scoreAuthority(
-      { ...base, candidates: [candidate(20)] },
-      defaultConfig,
-    );
+    const result = scoreAuthority({ ...base, candidates: [candidate(20)] }, defaultConfig);
     expect(result.raw).toBe(13);
   });
 
   test('min rank ≤ 30 → base 7', () => {
-    const result = scoreAuthority(
-      { ...base, candidates: [candidate(30)] },
-      defaultConfig,
-    );
+    const result = scoreAuthority({ ...base, candidates: [candidate(30)] }, defaultConfig);
     expect(result.raw).toBe(7);
   });
 
   test('min rank > 30 (unclassified) → base 2', () => {
-    const result = scoreAuthority(
-      { ...base, candidates: [candidate(99)] },
-      defaultConfig,
-    );
+    const result = scoreAuthority({ ...base, candidates: [candidate(99)] }, defaultConfig);
     expect(result.raw).toBe(2);
   });
 
@@ -89,10 +77,7 @@ describe('scoreAuthority — bonuses', () => {
     const result = scoreAuthority(
       {
         ...base,
-        candidates: [
-          candidate(10, { isAmendment: true }),
-          candidate(20),
-        ],
+        candidates: [candidate(10, { isAmendment: true }), candidate(20)],
       },
       defaultConfig,
     );
@@ -160,10 +145,7 @@ describe('scoreAuthority — custom tiers', () => {
 
 describe('scoreAuthority — DimensionScore shape', () => {
   test('returns all required fields', () => {
-    const result = scoreAuthority(
-      { ...base, candidates: [candidate(10)] },
-      defaultConfig,
-    );
+    const result = scoreAuthority({ ...base, candidates: [candidate(10)] }, defaultConfig);
     expect(result).toHaveProperty('raw');
     expect(result).toHaveProperty('max', 20);
     expect(result).toHaveProperty('normalized');
@@ -171,10 +153,7 @@ describe('scoreAuthority — DimensionScore shape', () => {
   });
 
   test('normalized = round(raw / 20 * 100)', () => {
-    const result = scoreAuthority(
-      { ...base, candidates: [candidate(20)] },
-      defaultConfig,
-    );
+    const result = scoreAuthority({ ...base, candidates: [candidate(20)] }, defaultConfig);
     expect(result.normalized).toBe(Math.round((result.raw / 20) * 100));
   });
 });

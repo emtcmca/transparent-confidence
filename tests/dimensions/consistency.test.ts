@@ -10,12 +10,12 @@ function candidate(combinedScore: number): Candidate {
 
 /** Builds N candidates with tight scores (max spread = 0.02). */
 function tightCandidates(n: number): Candidate[] {
-  return Array.from({ length: n }, (_, i) => candidate(0.80 + i * 0.01));
+  return Array.from({ length: n }, (_, i) => candidate(0.8 + i * 0.01));
 }
 
 /** Builds candidates with scattered scores (std dev > 0.30). */
 function scatteredCandidates(): Candidate[] {
-  return [0.95, 0.30, 0.85, 0.25, 0.90].map(candidate);
+  return [0.95, 0.3, 0.85, 0.25, 0.9].map(candidate);
 }
 
 const base: ScoringInputs = { confidenceLevel: 'high', candidates: [] };
@@ -32,7 +32,7 @@ describe('scoreConsistency — no candidates', () => {
 
 describe('scoreConsistency — single candidate', () => {
   test('1 candidate → raw 4 (neutral) + 2 (no conflict) = 6', () => {
-    const result = scoreConsistency({ ...base, candidates: [candidate(0.80)] });
+    const result = scoreConsistency({ ...base, candidates: [candidate(0.8)] });
     expect(result.raw).toBe(6);
   });
 });
@@ -45,14 +45,14 @@ describe('scoreConsistency — variance sub-signal', () => {
 
   test('std dev 0.10–0.19 → variance 6', () => {
     // scores with std dev ~0.14
-    const candidates = [0.60, 0.70, 0.80, 0.90].map(candidate);
+    const candidates = [0.6, 0.7, 0.8, 0.9].map(candidate);
     const result = scoreConsistency({ ...base, candidates });
     expect(result.raw).toBe(8); // variance 6 + no-conflict 2
   });
 
   test('std dev 0.20–0.29 → variance 4', () => {
     // [0.20, 0.40, 0.80, 0.90] → mean 0.575, std dev ~0.286
-    const candidates = [0.20, 0.40, 0.80, 0.90].map(candidate);
+    const candidates = [0.2, 0.4, 0.8, 0.9].map(candidate);
     const result = scoreConsistency({ ...base, candidates });
     // variance 4 + no-conflict 2 = 6
     expect(result.raw).toBe(6);

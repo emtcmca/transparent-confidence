@@ -1,4 +1,5 @@
-// Public API — types exported now (Phase 1), functions added in Phase 4
+export { computeConfidence, createScorer } from './scorer.js';
+
 export type {
   AuthorityTier,
   Candidate,

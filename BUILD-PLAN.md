@@ -848,11 +848,11 @@ These exact scenarios must pass at the Phase 4 gate and remain passing through P
 
 | Phase | Description | Status |
 |---|---|---|
-| 0 | Repo + Toolchain | — |
-| 1 | Type System | — |
-| 2 | Core Dimensions | — |
-| 3 | Optional Extensions | — |
-| 4 | Scorer + Public API | — |
+| 0 | Repo + Toolchain | ✅ Complete |
+| 1 | Type System | ✅ Complete |
+| 2 | Core Dimensions | ✅ Complete |
+| 3 | Optional Extensions | ✅ Complete |
+| 4 | Scorer + Public API | ✅ Complete |
 | 5 | Examples | — |
 | 6 | README + Documentation | — |
 | 7 | CI/CD + Publish | — |

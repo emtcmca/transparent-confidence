@@ -56,34 +56,22 @@ describe('scoreCorpus — base scores (expectedDocCount = 5)', () => {
 
 describe('scoreCorpus — missingRelevantType penalty', () => {
   test('3 of 5 + missingRelevantType → raw max(0, 9−3) = 6', () => {
-    const result = scoreCorpus(
-      { ...base, corpusDocCount: 3, missingRelevantType: true },
-      config5,
-    );
+    const result = scoreCorpus({ ...base, corpusDocCount: 3, missingRelevantType: true }, config5);
     expect(result.raw).toBe(6);
   });
 
   test('1 of 5 + missingRelevantType → raw max(0, 2−3) = 0', () => {
-    const result = scoreCorpus(
-      { ...base, corpusDocCount: 1, missingRelevantType: true },
-      config5,
-    );
+    const result = scoreCorpus({ ...base, corpusDocCount: 1, missingRelevantType: true }, config5);
     expect(result.raw).toBe(0);
   });
 
   test('5 of 5 + missingRelevantType → raw max(0, 15−3) = 12', () => {
-    const result = scoreCorpus(
-      { ...base, corpusDocCount: 5, missingRelevantType: true },
-      config5,
-    );
+    const result = scoreCorpus({ ...base, corpusDocCount: 5, missingRelevantType: true }, config5);
     expect(result.raw).toBe(12);
   });
 
   test('penalty floors at 0', () => {
-    const result = scoreCorpus(
-      { ...base, corpusDocCount: 0, missingRelevantType: true },
-      config5,
-    );
+    const result = scoreCorpus({ ...base, corpusDocCount: 0, missingRelevantType: true }, config5);
     expect(result.raw).toBe(0);
   });
 });
