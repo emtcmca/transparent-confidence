@@ -17,7 +17,7 @@ const daysAgo = (d: number) => new Date(now.getTime() - d * 24 * 60 * 60 * 1000)
 const scorecard = computeConfidence(
   {
     // LLM-assessed signals
-    confidenceLevel: 'medium',
+    supportLevel: 'medium',
     citationCount: 2,
 
     // Three KB articles — one recent, two aging

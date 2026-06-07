@@ -2,7 +2,11 @@ import type { DimensionScore, FreshnessConfig, ScoringConfig, ScoringInputs } fr
 
 const MAX = 15;
 
-const DEFAULTS: Required<FreshnessConfig> = {
+type ResolvedFreshnessConfig = Required<
+  Pick<FreshnessConfig, 'maxAgeForFullScore' | 'penaltyPerMonth' | 'hardCutoffAge'>
+>;
+
+const DEFAULTS: ResolvedFreshnessConfig = {
   maxAgeForFullScore: 90,
   penaltyPerMonth: 1.5,
   hardCutoffAge: 730,
@@ -18,7 +22,7 @@ const DEFAULTS: Required<FreshnessConfig> = {
  * If no candidates have lastUpdated, returns 0 with a note.
  */
 export function scoreFreshness(inputs: ScoringInputs, config: ScoringConfig): DimensionScore {
-  const cfg: Required<FreshnessConfig> = {
+  const cfg: ResolvedFreshnessConfig = {
     maxAgeForFullScore: config.freshness?.maxAgeForFullScore ?? DEFAULTS.maxAgeForFullScore,
     penaltyPerMonth: config.freshness?.penaltyPerMonth ?? DEFAULTS.penaltyPerMonth,
     hardCutoffAge: config.freshness?.hardCutoffAge ?? DEFAULTS.hardCutoffAge,

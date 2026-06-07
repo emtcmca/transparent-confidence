@@ -16,7 +16,7 @@ function candidateWithAge(days: number): Candidate {
   };
 }
 
-const base: ScoringInputs = { confidenceLevel: 'high', candidates: [] };
+const base: ScoringInputs = { supportLevel: 'high', candidates: [] };
 const defaultConfig: ScoringConfig = { freshness: {} };
 
 // ── Tests ─────────────────────────────────────────────────────────────────────

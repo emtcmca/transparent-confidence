@@ -26,6 +26,7 @@
 - [Extensions](#extensions)
 - [Enhanced Signals](#enhanced-signals)
 - [Examples](#examples)
+- [Upgrading from 0.1.x to 0.2.0](#upgrading-from-01x-to-020)
 - [Roadmap](#roadmap)
 - [Contributing](#contributing)
 - [License](#license)
@@ -108,7 +109,7 @@ Requires Node.js 20+.
 import { computeConfidence } from 'transparent-confidence';
 
 const scorecard = computeConfidence({
-  confidenceLevel: 'high',
+  supportLevel: 'high',
   citationCount: 3,
   candidates: [
     {
@@ -182,7 +183,7 @@ const candidates: Candidate[] = retrievedDocs.map((doc) => ({
 }));
 
 const scorecard = computeConfidence({
-  confidenceLevel: 'high',   // from your LLM's structured output
+  supportLevel: 'high',   // how strongly the retrieved sources support the answer
   candidates,
 });
 ```
@@ -239,7 +240,7 @@ Applied to the final normalized score:
 
 Scores how well the LLM answer is grounded in source documents.
 
-**Required inputs:** `confidenceLevel`
+**Required inputs:** `supportLevel`
 
 **Optional inputs:** `ambiguityNotes`, `documentsSilent`, `requiresExpertReview`, `externalConstraintNote`, `hasConflict`, `queryComplexity`, `faithfulnessScore`, `citationCount`
 
@@ -248,10 +249,10 @@ Scores how well the LLM answer is grounded in source documents.
 | Condition | Base |
 |---|---|
 | `documentsSilent = true` | 0 — all further logic skipped |
-| `confidenceLevel = 'low'` | 5 |
-| `confidenceLevel = 'medium'` | 13 |
-| `confidenceLevel = 'high'` + ambiguity present | 21 |
-| `confidenceLevel = 'high'` + no ambiguity | 30 |
+| `supportLevel = 'low'` | 5 |
+| `supportLevel = 'medium'` | 13 |
+| `supportLevel = 'high'` + ambiguity present | 21 |
+| `supportLevel = 'high'` + no ambiguity | 30 |
 
 #### Penalties (applied after base, floor 0)
 
@@ -394,7 +395,7 @@ function createScorer(config: ScoringConfig): {
 Returns a scorer pre-bound to a config. Use when scoring many answers against the same corpus/authority setup.
 
 ```typescript
-const scorer = createScorer({ corpus: { expectedDocCount: 10 } });
+const scorer = createScorer({ corpus: { expectedTypeCount: 10 } });
 const s1 = scorer.compute(inputs1);
 const s2 = scorer.compute(inputs2);
 ```
@@ -405,7 +406,7 @@ const s2 = scorer.compute(inputs2);
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `confidenceLevel` | `'high' \| 'medium' \| 'low'` | ✅ | LLM self-assessed confidence in the answer |
+| `supportLevel` | `'high' \| 'medium' \| 'low'` | ✅ | How strongly the retrieved sources support the answer |
 | `candidates` | `Candidate[]` | ✅ | Retrieved chunks used to produce the answer |
 | `ambiguityNotes` | `string \| null` | — | Non-null value signals the LLM found ambiguity in the source |
 | `requiresExpertReview` | `boolean` | — | LLM recommends human expert review |
@@ -416,7 +417,7 @@ const s2 = scorer.compute(inputs2);
 | `queryComplexity` | `'direct' \| 'inferential' \| 'multi-hop' \| 'comparative'` | — | Complexity of the question type; applies ceiling to grounding |
 | `faithfulnessScore` | `number` | — | 0–1 external faithfulness score (e.g. RAGAs); applies modifier to grounding |
 | `citationCount` | `number` | — | Number of distinct source sections explicitly cited in the answer |
-| `corpusDocCount` | `number` | — | Current document count in the corpus (required when Corpus extension active) |
+| `corpusTypeCount` | `number` | — | Current document type count in the corpus (required when Corpus extension active) |
 | `missingRelevantType` | `boolean` | — | True when a known relevant document type is not in the corpus |
 
 ### `Candidate`
@@ -440,8 +441,8 @@ All fields optional. Passing a key activates that extension.
 |---|---|---|---|
 | `authority` | `{ tiers?: AuthorityTier[] }` | — | Activates Source Authority extension |
 | `authority.tiers` | `AuthorityTier[]` | See below | Custom authority tier definitions |
-| `corpus` | `{ expectedDocCount: number }` | — | Activates Corpus Completeness extension |
-| `corpus.expectedDocCount` | `number` | *(required)* | Number of document types expected in a complete corpus |
+| `corpus` | `{ expectedTypeCount: number }` | — | Activates Corpus Completeness extension |
+| `corpus.expectedTypeCount` | `number` | *(required)* | Number of document types expected in a complete corpus |
 | `freshness` | `FreshnessConfig` | — | Activates Document Freshness extension |
 | `freshness.maxAgeForFullScore` | `number` (days) | 90 | Documents within this age receive full freshness points |
 | `freshness.penaltyPerMonth` | `number` | 1.5 | Points deducted per 30-day increment beyond window |
@@ -516,11 +517,11 @@ Scores how complete the document corpus is relative to what's expected. Surfaces
 
 ```typescript
 const scorecard = computeConfidence(inputs, {
-  corpus: { expectedDocCount: 6 },
+  corpus: { expectedTypeCount: 6 },
 });
 ```
 
-Provide `corpusDocCount` on inputs with the current document count. Set `missingRelevantType: true` if a known document type relevant to the query is absent from the corpus.
+Provide `corpusTypeCount` on inputs with the current document type count. Set `missingRelevantType: true` if a known document type relevant to the query is absent from the corpus.
 
 **Scoring:** 15 pts at 100% coverage, scales down by ratio. −3 penalty for `missingRelevantType`. Floor 0.
 
@@ -548,11 +549,11 @@ These inputs add nuance to the core dimension scores. All are optional and indep
 
 ### `faithfulnessScore`
 
-A 0–1 score measuring whether the LLM answer text is actually supported by the retrieved passages — distinct from `confidenceLevel`, which reflects LLM self-assessment. Tools like [RAGAs](https://docs.ragas.io/) compute this. Applies a −3 to −12 modifier to grounding, preventing high-confidence scores when the model hallucinates.
+A 0–1 score measuring whether the LLM answer text is actually supported by the retrieved passages — distinct from `supportLevel`, which is a coarse support classification. Tools like [RAGAs](https://docs.ragas.io/) compute this. Applies a −3 to −12 modifier to grounding, preventing high-support scores when the model hallucinates.
 
 ```typescript
-{ confidenceLevel: 'high', faithfulnessScore: 0.45, candidates: [...] }
-// confidenceLevel='high' starts at 30; faithfulnessScore < 0.50 → −12 → raw capped lower
+{ supportLevel: 'high', faithfulnessScore: 0.45, candidates: [...] }
+// supportLevel='high' starts at 30; faithfulnessScore < 0.50 → −12 → raw capped lower
 ```
 
 ### `queryComplexity`
@@ -596,6 +597,32 @@ Run any example:
 ```bash
 npx tsx examples/basic-rag.ts
 ```
+
+---
+
+## Upgrading from 0.1.x to 0.2.0
+
+v0.2.0 includes breaking field renames to make the API more precise:
+
+| 0.1.x | 0.2.0 | Why |
+|---|---|---|
+| `confidenceLevel` | `supportLevel` | The signal describes source support, not calibrated model confidence |
+| `corpusDocCount` | `corpusTypeCount` | The Corpus extension counts document types, not raw documents |
+| `corpus.expectedDocCount` | `corpus.expectedTypeCount` | Matches the document-type semantics |
+
+Migration is a direct find-and-replace:
+
+```typescript
+computeConfidence({
+  supportLevel: 'high',
+  corpusTypeCount: 4,
+  candidates,
+}, {
+  corpus: { expectedTypeCount: 5 },
+});
+```
+
+Old field names are removed from the v0.2 TypeScript surface.
 
 ---
 
@@ -645,3 +672,4 @@ Planned for future versions — none of these are started or committed:
 ## License
 
 [Apache 2.0](LICENSE)
+

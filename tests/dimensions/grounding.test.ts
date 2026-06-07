@@ -3,13 +3,13 @@ import { scoreGrounding } from '../../src/dimensions/grounding';
 import type { ScoringInputs } from '../../src/types';
 
 const base: ScoringInputs = {
-  confidenceLevel: 'high',
+  supportLevel: 'high',
   candidates: [],
 };
 
 describe('scoreGrounding — base scores', () => {
   test('high confidence, no ambiguity → raw 30', () => {
-    const result = scoreGrounding({ ...base, confidenceLevel: 'high' });
+    const result = scoreGrounding({ ...base, supportLevel: 'high' });
     expect(result.raw).toBe(30);
     expect(result.max).toBe(30);
   });
@@ -25,14 +25,14 @@ describe('scoreGrounding — base scores', () => {
   });
 
   test('medium confidence, no ambiguity → raw 13', () => {
-    const result = scoreGrounding({ ...base, confidenceLevel: 'medium' });
+    const result = scoreGrounding({ ...base, supportLevel: 'medium' });
     expect(result.raw).toBe(13);
   });
 
   test('medium confidence with ambiguity → raw 13 (ambiguity in explanation only)', () => {
     const result = scoreGrounding({
       ...base,
-      confidenceLevel: 'medium',
+      supportLevel: 'medium',
       ambiguityNotes: 'Conflicting paragraphs',
     });
     expect(result.raw).toBe(13);
@@ -40,14 +40,14 @@ describe('scoreGrounding — base scores', () => {
   });
 
   test('low confidence → raw 5', () => {
-    const result = scoreGrounding({ ...base, confidenceLevel: 'low' });
+    const result = scoreGrounding({ ...base, supportLevel: 'low' });
     expect(result.raw).toBe(5);
   });
 });
 
 describe('scoreGrounding — documentsSilent', () => {
   test('documentsSilent = true → raw 0 regardless of confidence', () => {
-    const result = scoreGrounding({ ...base, confidenceLevel: 'high', documentsSilent: true });
+    const result = scoreGrounding({ ...base, supportLevel: 'high', documentsSilent: true });
     expect(result.raw).toBe(0);
     expect(result.normalized).toBe(0);
   });
@@ -95,7 +95,7 @@ describe('scoreGrounding — penalties', () => {
   test('penalties on low confidence floor at 0', () => {
     const result = scoreGrounding({
       ...base,
-      confidenceLevel: 'low',
+      supportLevel: 'low',
       requiresExpertReview: true,
       externalConstraintNote: 'note',
       hasConflict: true,
@@ -129,7 +129,7 @@ describe('scoreGrounding — queryComplexity ceiling', () => {
     // medium confidence (13) + multi-hop ceiling (18) — 13 < 18, no cap
     const result = scoreGrounding({
       ...base,
-      confidenceLevel: 'medium',
+      supportLevel: 'medium',
       queryComplexity: 'multi-hop',
     });
     expect(result.raw).toBe(13);
@@ -170,7 +170,7 @@ describe('scoreGrounding — faithfulnessScore', () => {
   test('faithfulnessScore penalty floors at 0', () => {
     const result = scoreGrounding({
       ...base,
-      confidenceLevel: 'low',
+      supportLevel: 'low',
       faithfulnessScore: 0.1,
     });
     expect(result.raw).toBe(0);

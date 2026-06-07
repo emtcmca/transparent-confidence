@@ -14,7 +14,7 @@ import { computeConfidence } from '../src/index.js';
 const scorecard = computeConfidence(
   {
     // LLM-assessed signals — medium confidence: rule text present but has exceptions
-    confidenceLevel: 'medium',
+    supportLevel: 'medium',
     citationCount: 2,
     queryComplexity: 'inferential', // requires reading across multiple sections
 
@@ -50,7 +50,7 @@ const scorecard = computeConfidence(
     ],
 
     // Corpus state — 4 of 5 expected doc types uploaded
-    corpusDocCount: 4,
+    corpusTypeCount: 4,
     missingRelevantType: false,
   },
   {
@@ -58,7 +58,7 @@ const scorecard = computeConfidence(
     authority: {},
 
     // Corpus extension — 5 document types expected for a complete HOA corpus
-    corpus: { expectedDocCount: 5 },
+    corpus: { expectedTypeCount: 5 },
   },
 );
 

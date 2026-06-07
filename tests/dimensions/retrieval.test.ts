@@ -1,8 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { scoreRetrieval } from '../../src/dimensions/retrieval';
-import type { Candidate, ScoringInputs } from '../../src/types';
-
-// ── Fixtures ─────────────────────────────────────────────────────────────────
+import type { Candidate, ScoringConfig, ScoringInputs } from '../../src/types';
 
 /** Candidate confirmed by 2 methods with high scores. */
 function confirmed(combinedScore = 0.85, documentId?: string): Candidate {
@@ -23,22 +21,20 @@ function semanticOnly(combinedScore = 0.75, documentId?: string): Candidate {
 }
 
 const base: ScoringInputs = {
-  confidenceLevel: 'high',
+  supportLevel: 'high',
   candidates: [],
 };
 
-// ── Tests ─────────────────────────────────────────────────────────────────────
-
-describe('scoreRetrieval — no candidates', () => {
-  test('empty candidates → raw 0', () => {
+describe('scoreRetrieval - no candidates', () => {
+  test('empty candidates returns raw 0', () => {
     const result = scoreRetrieval(base);
     expect(result.raw).toBe(0);
     expect(result.normalized).toBe(0);
   });
 });
 
-describe('scoreRetrieval — method agreement sub-signal', () => {
-  test('3+ candidates confirmed by 2+ methods → agreement 15', () => {
+describe('scoreRetrieval - method agreement sub-signal', () => {
+  test('3+ candidates confirmed by 2+ methods returns agreement 15', () => {
     const result = scoreRetrieval({
       ...base,
       candidates: [confirmed(0.85), confirmed(0.83), confirmed(0.81)],
@@ -47,16 +43,15 @@ describe('scoreRetrieval — method agreement sub-signal', () => {
     expect(result.raw).toBeGreaterThanOrEqual(22);
   });
 
-  test('2 confirmed candidates → agreement 12', () => {
+  test('2 confirmed candidates returns agreement 12', () => {
     const result = scoreRetrieval({
       ...base,
       candidates: [confirmed(0.85), confirmed(0.83), semanticOnly(0.6)],
     });
-    // agreement=12, check it's reflected in score
     expect(result.raw).toBeGreaterThanOrEqual(12);
   });
 
-  test('1 confirmed candidate → agreement 8', () => {
+  test('1 confirmed candidate returns agreement 8', () => {
     const result = scoreRetrieval({
       ...base,
       candidates: [confirmed(0.8), semanticOnly(0.55), semanticOnly(0.5)],
@@ -64,7 +59,7 @@ describe('scoreRetrieval — method agreement sub-signal', () => {
     expect(result.raw).toBeGreaterThanOrEqual(8);
   });
 
-  test('0 confirmed candidates → agreement 3', () => {
+  test('0 confirmed candidates returns agreement 3', () => {
     const result = scoreRetrieval({
       ...base,
       candidates: [semanticOnly(0.8), semanticOnly(0.75)],
@@ -72,10 +67,43 @@ describe('scoreRetrieval — method agreement sub-signal', () => {
     // agreement=3 + magnitude 6 (avg 0.775) + diversity 0 + breadth 0 (2 < 3) = 9
     expect(result.raw).toBe(9);
   });
+
+  test('minConfirmedMethods: 1 lets vector-only retrieval score agreement without warning', () => {
+    const config: ScoringConfig = { retrieval: { minConfirmedMethods: 1 } };
+    const result = scoreRetrieval(
+      {
+        ...base,
+        candidates: [semanticOnly(0.8), semanticOnly(0.75), semanticOnly(0.7)],
+      },
+      config,
+    );
+
+    expect(result.breakdown?.components.agreement).toBe(15);
+    expect(result.warnings ?? []).not.toContainEqual(
+      expect.objectContaining({ code: 'single-retrieval-method' }),
+    );
+  });
+
+  test('method-specific thresholds change confirmation count', () => {
+    const config: ScoringConfig = {
+      retrieval: {
+        methodThresholds: { semantic: 0.9, keyword: 0.7 },
+      },
+    };
+    const result = scoreRetrieval(
+      {
+        ...base,
+        candidates: [confirmed(0.85), confirmed(0.83), confirmed(0.81)],
+      },
+      config,
+    );
+
+    expect(result.breakdown?.components.agreement).toBe(3);
+  });
 });
 
-describe('scoreRetrieval — magnitude sub-signal', () => {
-  test('avg effective score >= 0.80 → magnitude 8', () => {
+describe('scoreRetrieval - magnitude sub-signal', () => {
+  test('avg effective score >= 0.80 returns magnitude 8', () => {
     const result = scoreRetrieval({
       ...base,
       candidates: [confirmed(0.9), confirmed(0.85), confirmed(0.82)],
@@ -84,7 +112,7 @@ describe('scoreRetrieval — magnitude sub-signal', () => {
     expect(result.raw).toBe(24);
   });
 
-  test('avg effective score 0.65–0.79 → magnitude 6', () => {
+  test('avg effective score 0.65-0.79 returns magnitude 6', () => {
     const result = scoreRetrieval({
       ...base,
       candidates: [semanticOnly(0.7), semanticOnly(0.68), semanticOnly(0.66)],
@@ -93,12 +121,12 @@ describe('scoreRetrieval — magnitude sub-signal', () => {
     expect(result.raw).toBe(10);
   });
 
-  test('avg effective score < 0.35 → magnitude 0', () => {
+  test('avg effective score < 0.35 returns magnitude 0', () => {
     const result = scoreRetrieval({
       ...base,
       candidates: [semanticOnly(0.3), semanticOnly(0.28)],
     });
-    // agreement 3 + magnitude 0 (avg 0.29 < 0.35) + diversity 0 + breadth 0 (2 < 3) = 3
+    // agreement 3 + magnitude 0 (avg 0.29 < 0.35) + diversity 0 + breadth 0 = 3
     expect(result.raw).toBe(3);
   });
 
@@ -114,42 +142,83 @@ describe('scoreRetrieval — magnitude sub-signal', () => {
     };
     const withResult = scoreRetrieval({ ...base, candidates: [withQuality] });
     const withoutResult = scoreRetrieval({ ...base, candidates: [withoutQuality] });
-    // 0.90 * 0.40 = 0.36 effective — should score lower magnitude
     expect(withResult.raw).toBeLessThan(withoutResult.raw);
+  });
+
+  test('partial score band override merges with defaults', () => {
+    const result = scoreRetrieval(
+      {
+        ...base,
+        candidates: [semanticOnly(0.72), semanticOnly(0.7), semanticOnly(0.69)],
+      },
+      { retrieval: { scoreBands: { full: 0.7 } } },
+    );
+
+    expect(result.breakdown?.components.magnitude).toBe(8);
+  });
+
+  test('topK changes magnitude average', () => {
+    const candidates = [
+      semanticOnly(0.9),
+      semanticOnly(0.88),
+      semanticOnly(0.86),
+      semanticOnly(0.2),
+      semanticOnly(0.2),
+    ];
+
+    const top3 = scoreRetrieval({ ...base, candidates }, { retrieval: { topK: 3 } });
+    const top5 = scoreRetrieval({ ...base, candidates }, { retrieval: { topK: 5 } });
+
+    expect(top3.breakdown?.components.magnitude).toBeGreaterThan(
+      top5.breakdown?.components.magnitude ?? 0,
+    );
   });
 });
 
-describe('scoreRetrieval — source diversity sub-signal', () => {
-  test('3+ unique documentIds → +3 diversity pts', () => {
+describe('scoreRetrieval - source diversity sub-signal', () => {
+  test('3+ unique documentIds adds 3 diversity points', () => {
     const result = scoreRetrieval({
       ...base,
       candidates: [confirmed(0.85, 'doc-a'), confirmed(0.83, 'doc-b'), confirmed(0.81, 'doc-c')],
     });
-    // agreement 15 + magnitude 8 + diversity 3 + breadth 1 = 27 → capped at 25
+    // agreement 15 + magnitude 8 + diversity 3 + breadth 1 = 27 -> capped at 25
     expect(result.raw).toBe(25);
   });
 
-  test('2 unique documentIds → +1 diversity pts', () => {
+  test('2 unique documentIds adds 1 diversity point', () => {
     const result = scoreRetrieval({
       ...base,
       candidates: [semanticOnly(0.7, 'doc-a'), semanticOnly(0.68, 'doc-b')],
     });
-    // agreement 3 + magnitude 6 (avg 0.69) + diversity 1 + breadth 0 (2 < 3) = 10
+    // agreement 3 + magnitude 6 (avg 0.69) + diversity 1 + breadth 0 = 10
     expect(result.raw).toBe(10);
   });
 
-  test('no documentId provided → 0 diversity pts', () => {
+  test('no documentId provided adds 0 diversity points', () => {
     const result = scoreRetrieval({
       ...base,
       candidates: [semanticOnly(0.7), semanticOnly(0.68)],
     });
-    // agreement 3 + magnitude 6 (avg 0.69) + diversity 0 + breadth 0 (2 < 3) = 9
+    // agreement 3 + magnitude 6 (avg 0.69) + diversity 0 + breadth 0 = 9
     expect(result.raw).toBe(9);
+  });
+
+  test('duplicate contentHash is diagnostic-only and does not reduce diversity', () => {
+    const result = scoreRetrieval({
+      ...base,
+      candidates: [
+        { ...semanticOnly(0.7, 'doc-a'), contentHash: 'same' },
+        { ...semanticOnly(0.68, 'doc-b'), contentHash: 'same' },
+      ],
+    });
+
+    expect(result.breakdown?.components.diversity).toBe(1);
+    expect(result.breakdown?.diagnostics?.duplicateContentHashCount).toBe(1);
   });
 });
 
-describe('scoreRetrieval — section breadth sub-signal', () => {
-  test('5+ candidates → +2 breadth pts', () => {
+describe('scoreRetrieval - section breadth sub-signal', () => {
+  test('5+ candidates adds 2 breadth points', () => {
     const candidates = [
       semanticOnly(0.5),
       semanticOnly(0.5),
@@ -162,21 +231,21 @@ describe('scoreRetrieval — section breadth sub-signal', () => {
     expect(result.raw).toBe(9);
   });
 
-  test('3–4 candidates → +1 breadth pt', () => {
+  test('3-4 candidates adds 1 breadth point', () => {
     const candidates = [semanticOnly(0.5), semanticOnly(0.5), semanticOnly(0.5)];
     const result = scoreRetrieval({ ...base, candidates });
     // agreement 3 + magnitude 4 + breadth 1 = 8
     expect(result.raw).toBe(8);
   });
 
-  test('1–2 candidates → +0 breadth pts', () => {
+  test('1-2 candidates adds 0 breadth points', () => {
     const result = scoreRetrieval({ ...base, candidates: [semanticOnly(0.5)] });
     // agreement 3 + magnitude 4 + breadth 0 = 7
     expect(result.raw).toBe(7);
   });
 });
 
-describe('scoreRetrieval — cap and shape', () => {
+describe('scoreRetrieval - cap and shape', () => {
   test('score never exceeds 25', () => {
     const result = scoreRetrieval({
       ...base,
@@ -197,10 +266,48 @@ describe('scoreRetrieval — cap and shape', () => {
     expect(result).toHaveProperty('max', 25);
     expect(result).toHaveProperty('normalized');
     expect(result).toHaveProperty('explanation');
+    expect(result).toHaveProperty('breakdown');
+    expect(result.breakdown?.raw).toBe(result.raw);
   });
 
   test('normalized = round(raw / 25 * 100)', () => {
     const result = scoreRetrieval({ ...base, candidates: [semanticOnly(0.5)] });
     expect(result.normalized).toBe(Math.round((result.raw / 25) * 100));
+  });
+
+  test('empty candidates returns missing-candidates warning', () => {
+    const result = scoreRetrieval(base);
+    expect(result.warnings).toContainEqual(expect.objectContaining({ code: 'missing-candidates' }));
+  });
+
+  test('ambiguous top score gap creates diagnostic warning', () => {
+    const result = scoreRetrieval(
+      {
+        ...base,
+        candidates: [semanticOnly(0.8), semanticOnly(0.79)],
+      },
+      { retrieval: { minTopScoreGapForClearWinner: 0.05 } },
+    );
+
+    expect(result.breakdown?.diagnostics?.topScoreGap).toBeCloseTo(0.01);
+    expect(result.warnings).toContainEqual(
+      expect.objectContaining({ code: 'ambiguous-top-results' }),
+    );
+  });
+
+  test('cap is recorded as an adjustment when uncapped raw exceeds 25', () => {
+    const result = scoreRetrieval({
+      ...base,
+      candidates: [
+        confirmed(0.95, 'doc-a'),
+        confirmed(0.93, 'doc-b'),
+        confirmed(0.91, 'doc-c'),
+        confirmed(0.89, 'doc-d'),
+        confirmed(0.87, 'doc-e'),
+      ],
+    });
+
+    expect(result.breakdown?.uncappedRaw).toBeGreaterThan(25);
+    expect(result.breakdown?.adjustments.cap).toBeLessThan(0);
   });
 });

@@ -32,15 +32,15 @@ export function scoreGrounding(inputs: ScoringInputs): DimensionScore {
   // ── Base score ───────────────────────────────────────────────
   let score: number;
 
-  if (inputs.confidenceLevel === 'high' && !inputs.ambiguityNotes) {
+  if (inputs.supportLevel === 'high' && !inputs.ambiguityNotes) {
     score = 30;
     parts.push('Source text directly and unambiguously answers the question.');
-  } else if (inputs.confidenceLevel === 'high') {
+  } else if (inputs.supportLevel === 'high') {
     score = 21;
     parts.push(
       `Source text addresses the question but contains ambiguity: ${inputs.ambiguityNotes}`,
     );
-  } else if (inputs.confidenceLevel === 'medium') {
+  } else if (inputs.supportLevel === 'medium') {
     score = 13;
     if (inputs.ambiguityNotes) {
       parts.push(

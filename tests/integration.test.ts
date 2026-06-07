@@ -21,7 +21,7 @@ function multiMethod(combinedScore: number, documentId: string, rank?: number): 
 
 describe('computeConfidence — API contracts', () => {
   const base: ScoringInputs = {
-    confidenceLevel: 'high',
+    supportLevel: 'high',
     candidates: [multiMethod(0.8, 'doc1'), multiMethod(0.75, 'doc2')],
   };
 
@@ -88,8 +88,8 @@ describe('computeConfidence — API contracts', () => {
   });
 
   test('candidates: [] does not throw — returns low score with explanation', () => {
-    expect(() => computeConfidence({ confidenceLevel: 'low', candidates: [] })).not.toThrow();
-    const sc = computeConfidence({ confidenceLevel: 'low', candidates: [] });
+    expect(() => computeConfidence({ supportLevel: 'low', candidates: [] })).not.toThrow();
+    const sc = computeConfidence({ supportLevel: 'low', candidates: [] });
     expect(sc.total).toBeGreaterThanOrEqual(0);
     expect(sc.dimensions.retrieval.explanation).toBeTruthy();
   });
@@ -97,10 +97,10 @@ describe('computeConfidence — API contracts', () => {
 
 describe('createScorer — API contracts', () => {
   test('compute() produces identical result to computeConfidence(inputs, config)', () => {
-    const config = { corpus: { expectedDocCount: 5 } };
+    const config = { corpus: { expectedTypeCount: 5 } };
     const inputs: ScoringInputs = {
-      confidenceLevel: 'medium',
-      corpusDocCount: 4,
+      supportLevel: 'medium',
+      corpusTypeCount: 4,
       candidates: [multiMethod(0.75, 'doc1'), multiMethod(0.7, 'doc2')],
     };
     const scorer = createScorer(config);
@@ -168,17 +168,17 @@ describe('Scenario A — perfect answer, all extensions', () => {
   ];
 
   const inputs: ScoringInputs = {
-    confidenceLevel: 'high',
+    supportLevel: 'high',
     faithfulnessScore: 0.95,
     queryComplexity: 'direct',
     citationCount: 4,
-    corpusDocCount: 5,
+    corpusTypeCount: 5,
     candidates,
   };
 
   const config = {
     authority: {},
-    corpus: { expectedDocCount: 5 },
+    corpus: { expectedTypeCount: 5 },
     freshness: {},
   };
 
@@ -221,7 +221,7 @@ describe('Scenario A — perfect answer, all extensions', () => {
 
 describe('Scenario B — documentsSilent', () => {
   const inputs: ScoringInputs = {
-    confidenceLevel: 'low',
+    supportLevel: 'low',
     documentsSilent: true,
     candidates: [],
   };
@@ -260,11 +260,11 @@ describe('Scenario B — documentsSilent', () => {
 
 describe('Scenario C — low confidence, thin corpus', () => {
   const inputs: ScoringInputs = {
-    confidenceLevel: 'low',
-    corpusDocCount: 1,
+    supportLevel: 'low',
+    corpusTypeCount: 1,
     candidates: [{ retrievalScores: { semantic: 0.5 }, combinedScore: 0.5, documentId: 'doc1' }],
   };
-  const config = { corpus: { expectedDocCount: 5 } };
+  const config = { corpus: { expectedTypeCount: 5 } };
 
   test('total = 25', () => {
     const sc = computeConfidence(inputs, config);
@@ -298,7 +298,7 @@ describe('Scenario D — medium confidence, clean retrieval', () => {
     { retrievalScores: { semantic: 0.75, keyword: 0.7 }, combinedScore: 0.7, documentId: 'doc3' },
   ];
 
-  const inputs: ScoringInputs = { confidenceLevel: 'medium', candidates };
+  const inputs: ScoringInputs = { supportLevel: 'medium', candidates };
 
   test('total = 74', () => {
     const sc = computeConfidence(inputs);
@@ -328,7 +328,7 @@ describe('Scenario E — high conf, multi-hop, low faithfulness', () => {
   ];
 
   const inputs: ScoringInputs = {
-    confidenceLevel: 'high',
+    supportLevel: 'high',
     queryComplexity: 'multi-hop',
     faithfulnessScore: 0.45,
     candidates,
@@ -354,7 +354,7 @@ describe('Scenario E — high conf, multi-hop, low faithfulness', () => {
 
 describe('extension activation', () => {
   const baseInputs: ScoringInputs = {
-    confidenceLevel: 'high',
+    supportLevel: 'high',
     candidates: [multiMethod(0.8, 'doc1')],
   };
 
@@ -367,8 +367,8 @@ describe('extension activation', () => {
 
   test('corpus extension: maxPossible = 80, dimensions.corpus present, tier2 present', () => {
     const sc = computeConfidence(
-      { ...baseInputs, corpusDocCount: 3 },
-      { corpus: { expectedDocCount: 5 } },
+      { ...baseInputs, corpusTypeCount: 3 },
+      { corpus: { expectedTypeCount: 5 } },
     );
     expect(sc.meta.maxPossible).toBe(80);
     expect(sc.dimensions.corpus).toBeDefined();
@@ -388,10 +388,10 @@ describe('extension activation', () => {
 
   test('all three extensions: maxPossible = 115, activeExtensions length = 3', () => {
     const sc = computeConfidence(
-      { ...baseInputs, corpusDocCount: 3 },
+      { ...baseInputs, corpusTypeCount: 3 },
       {
         authority: {},
-        corpus: { expectedDocCount: 5 },
+        corpus: { expectedTypeCount: 5 },
         freshness: {},
       },
     );
@@ -405,9 +405,9 @@ describe('extension activation', () => {
 describe('normalization invariants', () => {
   test('total is always an integer across multiple inputs', () => {
     const cases: ScoringInputs[] = [
-      { confidenceLevel: 'high', candidates: [multiMethod(0.9, 'doc1')] },
-      { confidenceLevel: 'medium', candidates: [multiMethod(0.7, 'doc1')] },
-      { confidenceLevel: 'low', candidates: [] },
+      { supportLevel: 'high', candidates: [multiMethod(0.9, 'doc1')] },
+      { supportLevel: 'medium', candidates: [multiMethod(0.7, 'doc1')] },
+      { supportLevel: 'low', candidates: [] },
     ];
     for (const inputs of cases) {
       const sc = computeConfidence(inputs);
@@ -418,10 +418,10 @@ describe('normalization invariants', () => {
   test('rawTotal never exceeds maxPossible with all extensions active', () => {
     const sc = computeConfidence(
       {
-        confidenceLevel: 'high',
+        supportLevel: 'high',
         faithfulnessScore: 0.99,
         citationCount: 5,
-        corpusDocCount: 10,
+        corpusTypeCount: 10,
         candidates: [
           {
             ...multiMethod(0.95, 'doc1', 5),
@@ -437,7 +437,7 @@ describe('normalization invariants', () => {
       },
       {
         authority: {},
-        corpus: { expectedDocCount: 5 },
+        corpus: { expectedTypeCount: 5 },
         freshness: {},
       },
     );

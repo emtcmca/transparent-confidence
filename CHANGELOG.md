@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.0] - In progress
+
+### Breaking
+- Renamed `confidenceLevel` to `supportLevel`
+- Renamed `corpusDocCount` to `corpusTypeCount`
+- Renamed `corpus.expectedDocCount` to `corpus.expectedTypeCount`
+
+### Changed
+- README: added v0.1.x to v0.2.0 migration guidance
+
+---
+
 ## [0.1.1] — 2026-06-07
 
 ### Changed

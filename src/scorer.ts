@@ -6,12 +6,16 @@ import { scoreGrounding } from './dimensions/grounding.js';
 import { scoreRetrieval } from './dimensions/retrieval.js';
 import { deriveLabel, deriveTier1, deriveTier2 } from './labels.js';
 import { normalize } from './normalize.js';
-import type { ConfidenceScorecard, ScoringConfig, ScoringInputs } from './types.js';
+import type { ConfidenceScorecard, DimensionName, ScoringConfig, ScoringInputs } from './types.js';
+import { collectInputWarnings, enforceInputValidation, validateConfig } from './validation.js';
+import { missingSignalsForWarnings, uniqueWarnings } from './warnings.js';
 
 const CORE_MAX = 65; // grounding(30) + retrieval(25) + consistency(10)
 const AUTHORITY_MAX = 20;
 const CORPUS_MAX = 15;
 const FRESHNESS_MAX = 15;
+const ALGORITHM_VERSION = '0.2.0';
+const SCORECARD_SCHEMA_VERSION = '0.2';
 
 /**
  * Computes a structured confidence scorecard for a RAG answer.
@@ -24,12 +28,17 @@ export function computeConfidence(
   inputs: ScoringInputs,
   config: ScoringConfig = {},
 ): ConfidenceScorecard {
+  validateConfig(config);
+
+  const validationWarnings = collectInputWarnings(inputs, config);
+  enforceInputValidation(validationWarnings, config);
+
   const hasAuthority = config.authority !== undefined;
   const hasCorpus = config.corpus !== undefined;
   const hasFreshness = config.freshness !== undefined;
 
   const grounding = scoreGrounding(inputs);
-  const retrieval = scoreRetrieval(inputs);
+  const retrieval = scoreRetrieval(inputs, config);
   const consistency = scoreConsistency(inputs);
   const authority = hasAuthority ? scoreAuthority(inputs, config) : undefined;
   const corpus = hasCorpus ? scoreCorpus(inputs, config) : undefined;
@@ -39,6 +48,11 @@ export function computeConfidence(
   if (hasAuthority) activeExtensions.push('authority');
   if (hasCorpus) activeExtensions.push('corpus');
   if (hasFreshness) activeExtensions.push('freshness');
+
+  const activeDimensions: DimensionName[] = ['grounding', 'retrieval', 'consistency'];
+  if (hasAuthority) activeDimensions.push('authority');
+  if (hasCorpus) activeDimensions.push('corpus');
+  if (hasFreshness) activeDimensions.push('freshness');
 
   const maxPossible =
     CORE_MAX +
@@ -56,6 +70,15 @@ export function computeConfidence(
 
   const total = normalize(rawTotal, maxPossible);
   const { label, color: labelColor } = deriveLabel(total);
+  const warnings = uniqueWarnings([
+    ...validationWarnings,
+    ...(grounding.warnings ?? []),
+    ...(retrieval.warnings ?? []),
+    ...(consistency.warnings ?? []),
+    ...(authority?.warnings ?? []),
+    ...(corpus?.warnings ?? []),
+    ...(freshness?.warnings ?? []),
+  ]);
 
   // Tier 1: grounding + retrieval + consistency + authority
   const tier1Raw = grounding.raw + retrieval.raw + consistency.raw + (authority?.raw ?? 0);
@@ -71,6 +94,11 @@ export function computeConfidence(
     total,
     label,
     labelColor,
+    recommendedAction: deriveRecommendedAction(total, inputs.documentsSilent === true),
+    actionReason:
+      inputs.documentsSilent === true
+        ? 'documentsSilent is true.'
+        : `Composite score ${total} maps to ${label}.`,
     tier1,
     tier2,
     dimensions: {
@@ -82,9 +110,22 @@ export function computeConfidence(
       ...(freshness !== undefined && { freshness }),
     },
     meta: {
+      algorithmVersion: ALGORITHM_VERSION,
+      schemaVersion: SCORECARD_SCHEMA_VERSION,
       rawTotal,
       maxPossible,
       activeExtensions,
+      activeDimensions,
+      missingSignals: missingSignalsForWarnings(warnings),
+      warnings,
+      weights: {
+        grounding: 30,
+        retrieval: 25,
+        consistency: 10,
+        ...(hasAuthority && { authority: AUTHORITY_MAX }),
+        ...(hasCorpus && { corpus: CORPUS_MAX }),
+        ...(hasFreshness && { freshness: FRESHNESS_MAX }),
+      },
     },
   };
 }
@@ -96,7 +137,19 @@ export function computeConfidence(
 export function createScorer(config: ScoringConfig): {
   compute: (inputs: ScoringInputs) => ConfidenceScorecard;
 } {
+  validateConfig(config);
+
   return {
     compute: (inputs: ScoringInputs) => computeConfidence(inputs, config),
   };
+}
+
+function deriveRecommendedAction(
+  total: number,
+  documentsSilent: boolean,
+): 'answer' | 'review' | 'abstain' {
+  if (documentsSilent) return 'abstain';
+  if (total >= 65) return 'answer';
+  if (total >= 40) return 'review';
+  return 'abstain';
 }

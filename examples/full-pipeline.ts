@@ -24,7 +24,7 @@ const scorer = createScorer({
       { name: 'Rules', rank: 20, keywords: ['Rules', 'Regulations', 'Policy'] },
     ],
   },
-  corpus: { expectedDocCount: 6 },
+  corpus: { expectedTypeCount: 6 },
   freshness: {
     maxAgeForFullScore: 90,
     penaltyPerMonth: 1.5,
@@ -37,7 +37,7 @@ const daysAgo = (d: number) => new Date(now.getTime() - d * 24 * 60 * 60 * 1000)
 
 const scorecard = scorer.compute({
   // LLM-assessed signals — all favorable
-  confidenceLevel: 'high',
+  supportLevel: 'high',
   queryComplexity: 'multi-hop', // complex: must trace amendment chain
   faithfulnessScore: 0.94, // LLM answer closely tracks source text
   citationCount: 4,
@@ -101,7 +101,7 @@ const scorecard = scorer.compute({
   ],
 
   // Corpus state — all 6 expected document types loaded
-  corpusDocCount: 6,
+  corpusTypeCount: 6,
   missingRelevantType: false,
 });
 

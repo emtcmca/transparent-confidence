@@ -13,7 +13,7 @@ import { computeConfidence } from '../src/index.js';
 
 const scorecard = computeConfidence({
   // LLM-assessed signals
-  confidenceLevel: 'high',
+  supportLevel: 'high',
   citationCount: 3,
 
   // Retrieved candidates — three solid hits from two retrieval methods each
