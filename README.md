@@ -5,7 +5,7 @@
 [![npm version](https://img.shields.io/npm/v/transparent-confidence.svg)](https://www.npmjs.com/package/transparent-confidence)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![CI](https://github.com/emtcmca/transparent-confidence/actions/workflows/ci.yml/badge.svg)](https://github.com/emtcmca/transparent-confidence/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-179%20passing-brightgreen.svg)](https://github.com/emtcmca/transparent-confidence/actions)
+[![Tests](https://img.shields.io/badge/tests-350%20passing-brightgreen.svg)](https://github.com/emtcmca/transparent-confidence/actions)
 [![Zero dependencies](https://img.shields.io/badge/dependencies-0-brightgreen.svg)](package.json)
 
 > **Transparent Confidence™** is a scoring methodology that makes RAG answer quality auditable — every point on the 0–100 scale has an explicit reason attached to it.
@@ -21,11 +21,19 @@
 - [Install](#install)
 - [Quick Start](#quick-start)
 - [From Your Retriever to Candidate\[\]](#from-your-retriever-to-candidate)
+- [Recommended Action](#recommended-action)
+- [Warnings and Missing Signals](#warnings-and-missing-signals)
 - [Algorithm](#algorithm)
+- [Retrieval Tuning](#retrieval-tuning)
+- [Answer Relevance](#answer-relevance)
+- [Dimension Weights](#dimension-weights)
+- [Machine-readable Breakdowns](#machine-readable-breakdowns)
+- [Observability Logging](#observability-logging)
 - [API Reference](#api-reference)
 - [Extensions](#extensions)
 - [Enhanced Signals](#enhanced-signals)
 - [Examples](#examples)
+- [Upgrading from 0.1.x to 0.2.0](#upgrading-from-01x-to-020)
 - [Roadmap](#roadmap)
 - [Contributing](#contributing)
 - [License](#license)
@@ -51,6 +59,8 @@ RAG pipelines ship answers. They don't ship confidence.
 - **Always normalized** — score is 0–100 regardless of which optional dimensions are active
 - **Per-dimension breakdowns** — every point is explainable, not a black box
 - **Tiered display** — Answer Confidence (Tier 1) and System Readiness (Tier 2) shown separately
+- **Recommended action** — `answer`, `review`, or `abstain` with a reason string
+- **Machine-readable warnings** — structured warning codes for dashboards and alerting
 - **Zero required config** — three core dimensions work out of the box; optional extensions activate on demand
 - **Zero dependencies** — no ML stack, no server, no model calls; runs inline in any Node.js 20+ process
 
@@ -87,7 +97,7 @@ RAG pipelines ship answers. They don't ship confidence.
 **Not for:**
 - Offline batch evaluation of a fine-tuned model's accuracy — use RAGAs or DeepEval
 - LLM-as-judge faithfulness scoring — those tools call a model to assess the answer; this package does not
-- Single-retrieval pipelines with no metadata — you'll get a score, but it won't be very differentiated
+- Single-retrieval pipelines with no metadata — you'll get a score, but consider `minConfirmedMethods: 1` (see Retrieval Tuning)
 - Replacing a proper eval suite — use this at runtime and eval tools offline; they complement each other
 
 ---
@@ -108,7 +118,8 @@ Requires Node.js 20+.
 import { computeConfidence } from 'transparent-confidence';
 
 const scorecard = computeConfidence({
-  confidenceLevel: 'high',
+  supportLevel: 'high',
+  hasConflict: false,   // explicit — prevents missing-conflict-signal warning
   citationCount: 3,
   candidates: [
     {
@@ -129,9 +140,10 @@ const scorecard = computeConfidence({
   ],
 });
 
-console.log(scorecard.total);      // 100
-console.log(scorecard.label);      // 'Strong'
-console.log(scorecard.labelColor); // 'green'
+console.log(scorecard.total);             // 100
+console.log(scorecard.label);             // 'Strong'
+console.log(scorecard.recommendedAction); // 'answer'
+console.log(scorecard.actionReason);      // 'Score 100 meets answerAt threshold (65).'
 ```
 
 **Output shape:**
@@ -141,17 +153,25 @@ console.log(scorecard.labelColor); // 'green'
   "total": 100,
   "label": "Strong",
   "labelColor": "green",
+  "recommendedAction": "answer",
+  "actionReason": "Score 100 meets answerAt threshold (65).",
   "tier1": { "score": 100, "label": "Strong", "color": "green" },
   "tier2": null,
   "dimensions": {
-    "grounding":   { "raw": 30, "max": 30, "normalized": 100, "explanation": "Source text directly and unambiguously answers the question. 3 sections explicitly cited in answer (+2)." },
-    "retrieval":   { "raw": 25, "max": 25, "normalized": 100, "explanation": "3 candidates confirmed by 2+ retrieval methods. Top-3 effective score avg: 0.85. 3 distinct source documents. 3 total candidates." },
-    "consistency": { "raw": 10, "max": 10, "normalized": 100, "explanation": "Score std dev 0.024 — very tight retrieval consistency. No conflict detected (+2)." }
+    "grounding":   { "raw": 30, "max": 30, "normalized": 100, "explanation": "..." },
+    "retrieval":   { "raw": 25, "max": 25, "normalized": 100, "explanation": "..." },
+    "consistency": { "raw": 10, "max": 10, "normalized": 100, "explanation": "..." }
   },
   "meta": {
+    "algorithmVersion": "0.2.0",
+    "schemaVersion": "0.2",
     "rawTotal": 65,
     "maxPossible": 65,
-    "activeExtensions": []
+    "activeExtensions": [],
+    "activeDimensions": ["grounding", "retrieval", "consistency"],
+    "warnings": [],
+    "missingSignals": [],
+    "weights": { "grounding": 30, "retrieval": 25, "consistency": 10 }
   }
 }
 ```
@@ -182,7 +202,8 @@ const candidates: Candidate[] = retrievedDocs.map((doc) => ({
 }));
 
 const scorecard = computeConfidence({
-  confidenceLevel: 'high',   // from your LLM's structured output
+  supportLevel: 'high',   // how strongly the retrieved sources support the answer
+  hasConflict: false,
   candidates,
 });
 ```
@@ -203,14 +224,112 @@ The minimum required per candidate is `retrievalScores` (any key name, any numbe
 
 ---
 
+## Recommended Action
+
+Every scorecard includes `recommendedAction` (`'answer'` | `'review'` | `'abstain'`) and `actionReason` (a human-readable string explaining the first rule that decided the action).
+
+### Default policy
+
+The 8-rule cascade runs in order and returns on the first match:
+
+| Rule | Trigger | Action |
+|---|---|---|
+| 1 | `documentsSilent === true` | `abstain` |
+| 2 | Any warning code is in `abstainOnWarnings` | `abstain` |
+| 3 | `total < abstainBelow` (default 40) | `abstain` |
+| 4 | `tier1.score < requireTier1AtLeast` (default 40) | `review` |
+| 5 | Any warning code is in `reviewOnWarnings` | `review` |
+| 6 | `total >= answerAt` (default 65) | `answer` |
+| 7 | `total >= reviewAt` (default 40) | `review` |
+| 8 | Fallback | `abstain` |
+
+Default warning lists:
+- `reviewOnWarnings`: `['missing-answer-relevance', 'missing-conflict-signal']`
+- `abstainOnWarnings`: `['documents-silent']`
+
+> **Important:** Most simple RAG calls omit `hasConflict` — this generates a `missing-conflict-signal` warning, which fires rule 5 and returns `review` even if the score is high. Pass `hasConflict: false` (or `conflictingCandidateCount: 0`) explicitly to clear this warning.
+
+### Customizing the policy
+
+```typescript
+computeConfidence(inputs, {
+  actionPolicy: {
+    answerAt: 70,                      // raise the answer threshold
+    reviewAt: 45,
+    abstainBelow: 35,
+    requireTier1AtLeast: 50,           // stricter tier 1 floor
+    reviewOnWarnings: [],              // disable warning-based review
+    abstainOnWarnings: ['documents-silent'],
+  },
+});
+```
+
+### Runtime gating pattern
+
+```typescript
+const scorecard = computeConfidence(inputs, config);
+
+if (scorecard.recommendedAction === 'abstain') {
+  return { answer: null, reason: scorecard.actionReason };
+}
+
+if (scorecard.recommendedAction === 'review') {
+  return { answer, reviewRequired: true, confidence: scorecard.total };
+}
+
+return { answer, confidence: scorecard.total };
+```
+
+---
+
+## Warnings and Missing Signals
+
+`scorecard.meta.warnings` is an array of structured warnings produced during scoring. Each warning has:
+
+| Field | Type | Description |
+|---|---|---|
+| `code` | `ConfidenceWarningCode` | Machine-readable identifier |
+| `severity` | `'info' \| 'warn' \| 'error'` | Severity level |
+| `message` | `string` | Human-readable description |
+| `path` | `string?` | Input path that triggered the warning |
+
+`scorecard.meta.missingSignals` lists concise identifiers for signals that would improve scoring accuracy if provided.
+
+### Common warning codes
+
+| Code | Triggered when |
+|---|---|
+| `missing-conflict-signal` | Neither `hasConflict` nor `conflictingCandidateCount` provided |
+| `missing-faithfulness` | No `faithfulnessScore` or `claimSupport` provided |
+| `missing-answer-relevance` | `config.relevance.required = true` but `answerRelevanceScore` absent |
+| `missing-freshness-dates` | Freshness extension active but no candidates have `lastUpdated` |
+| `missing-corpus-count` | Corpus extension active but `corpusTypeCount` not provided |
+| `authority-unclassified` | Some candidates couldn't be classified against any authority tier |
+| `documents-silent` | `documentsSilent = true` — corpus has no content for this question |
+| `ambiguous-top-results` | Gap between top-1 and top-2 retrieval scores is smaller than the configured threshold |
+| `single-retrieval-method` | All candidates have only one retrieval method and `minConfirmedMethods > 1` |
+
+### Validation modes
+
+```typescript
+// Default: input issues produce warnings, config errors throw
+computeConfidence(inputs, config);
+
+// Strict: input issues also throw
+computeConfidence(inputs, { ...config, validation: 'strict' });
+```
+
+---
+
 ## Algorithm
 
-The score is built from three core dimensions (always active) and up to three optional extensions. Raw points from all active dimensions are summed and normalized to 0–100.
+The score is built from three core dimensions (always active) and up to four optional extensions. Raw points from all active dimensions are summed and normalized to 0–100.
 
 ```
 normalizedScore = round((rawTotal / maxPossible) × 100)
 
-maxPossible = 65                      (core)
+maxPossible = 65                      (core: grounding + retrieval + consistency)
+            + 15  (Relevance active)
             + 20  (Authority active)
             + 15  (Corpus active)
             + 15  (Freshness active)
@@ -229,7 +348,7 @@ Applied to the final normalized score:
 
 ### Tier Display
 
-**Tier 1 — Answer Confidence:** Grounding + Retrieval + Consistency + Authority (when active). Normalized independently to 0–100. Labels match composite scale.
+**Tier 1 — Answer Confidence:** Grounding + Retrieval + Consistency + Relevance (when active) + Authority (when active). Normalized independently to 0–100. Labels match composite scale.
 
 **Tier 2 — System Readiness:** Corpus + Freshness (when active). Normalized independently to 0–100. Uses separate labels: Complete / Good / Partial / Thin. Hidden (`null`) when neither extension is configured.
 
@@ -239,21 +358,21 @@ Applied to the final normalized score:
 
 Scores how well the LLM answer is grounded in source documents.
 
-**Required inputs:** `confidenceLevel`
+**Required inputs:** `supportLevel`
 
-**Optional inputs:** `ambiguityNotes`, `documentsSilent`, `requiresExpertReview`, `externalConstraintNote`, `hasConflict`, `queryComplexity`, `faithfulnessScore`, `citationCount`
+**Optional inputs:** `ambiguityNotes`, `documentsSilent`, `requiresExpertReview`, `externalConstraintNote`, `hasConflict`, `queryComplexity`, `faithfulnessScore`, `claimSupport`, `citationCount`, `citationCoverageScore`, `invalidCitationCount`
 
 #### Base score
 
 | Condition | Base |
 |---|---|
 | `documentsSilent = true` | 0 — all further logic skipped |
-| `confidenceLevel = 'low'` | 5 |
-| `confidenceLevel = 'medium'` | 13 |
-| `confidenceLevel = 'high'` + ambiguity present | 21 |
-| `confidenceLevel = 'high'` + no ambiguity | 30 |
+| `supportLevel = 'low'` | 5 |
+| `supportLevel = 'medium'` | 13 |
+| `supportLevel = 'high'` + ambiguity present | 21 |
+| `supportLevel = 'high'` + no ambiguity | 30 |
 
-#### Penalties (applied after base, floor 0)
+#### Penalties (applied after base)
 
 | Condition | Penalty |
 |---|---|
@@ -270,25 +389,39 @@ Scores how well the LLM answer is grounded in source documents.
 | `'multi-hop'` | 18 |
 | `'comparative'` | 16 |
 
-#### `faithfulnessScore` modifier (applied after ceiling, floor 0)
+#### Faithfulness / claim support modifier
 
-An external faithfulness score (e.g. from RAGAs or a custom evaluator) that measures whether the LLM answer text is supported by the retrieved passages.
+An external faithfulness score or claim support summary that measures whether the LLM answer text is supported by the retrieved passages.
 
-| Value | Modifier |
+| Effective Support Score | Modifier |
 |---|---|
 | ≥ 0.90 | +0 |
 | 0.70–0.89 | −3 |
 | 0.50–0.69 | −7 |
 | < 0.50 | −12 |
-| Not provided | Not applied |
+| Both present | Uses the more conservative (lower) value |
+| Not provided | Not applied; warning `missing-faithfulness` |
 
-#### `citationCount` bonus (applied last, cannot exceed 30)
+If `claimSupport.contradictedClaims >= 1`, an additional −5 contradiction penalty applies.
+
+#### Citation quality
+
+| Signal | Effect |
+|---|---|
+| `invalidCitationCount = 1` | −2, no citation bonus |
+| `invalidCitationCount >= 2` | −5, no citation bonus |
+| `citationCoverageScore < 0.50` | −3 |
+| `citationCoverageScore 0.50–0.79` | −1 |
+
+#### Citation count bonus (applied last, cannot exceed max 30)
 
 | Value | Bonus |
 |---|---|
 | ≥ 3 | +2 |
 | 2 | +1 |
 | 0–1 or not provided | +0 |
+
+The citation count bonus is not applied when `invalidCitationCount > 0`.
 
 ---
 
@@ -298,22 +431,24 @@ Scores the quality, breadth, and agreement of the retrieved candidates. Three su
 
 **Required inputs:** `candidates[].retrievalScores`, `candidates[].combinedScore`
 
-**Optional inputs:** `candidates[].documentId`, `candidates[].extractionQuality`
+**Optional inputs:** `candidates[].documentId`, `candidates[].extractionQuality`, `config.retrieval`
 
 #### Sub-signal A — Method Agreement (0–15)
 
-Counts candidates where ≥ 2 named retrieval methods each scored > 0:
+A candidate is "confirmed" when the number of retrieval methods that scored above the configured threshold is ≥ `minConfirmedMethods` (default 2).
 
-| Candidates confirmed by 2+ methods | Points |
+| Confirmed candidates | Points |
 |---|---|
 | ≥ 3 | 15 |
 | 2 | 12 |
 | 1 | 8 |
 | 0 | 3 |
 
+**Single-vector pipelines:** set `minConfirmedMethods: 1` so all candidates count as confirmed. See [Retrieval Tuning](#retrieval-tuning).
+
 #### Sub-signal B — Score Magnitude (0–8)
 
-Average `combinedScore` of top 3 candidates by score. If `extractionQuality` is provided, applies as a multiplier before averaging: `effectiveScore = combinedScore × extractionQuality`.
+Average `combinedScore` of top `topK` (default 3) candidates. If `extractionQuality` is provided: `effectiveScore = combinedScore × extractionQuality`.
 
 | Avg effective score | Points |
 |---|---|
@@ -324,6 +459,8 @@ Average `combinedScore` of top 3 candidates by score. If `extractionQuality` is 
 | < 0.35 | 0 |
 
 #### Sub-signal C — Source Diversity + Section Breadth (0–5)
+
+Source diversity counts unique `documentId` values. `contentHash` is diagnostic-only in v0.2; duplicate content hashes do not reduce diversity points by default.
 
 | Unique `documentId` values | Points |
 |---|---|
@@ -341,7 +478,7 @@ Average `combinedScore` of top 3 candidates by score. If `extractionQuality` is 
 
 ### Dimension 3 — Evidence Consistency (max 10 pts)
 
-Scores how consistent the retrieved candidates are with each other.
+Scores retrieval score stability plus explicit evidence conflict status. v0.2 treats a missing conflict signal as a conservative neutral — not as implicit agreement.
 
 **Required inputs:** `candidates[].combinedScore`
 
@@ -349,27 +486,272 @@ Scores how consistent the retrieved candidates are with each other.
 
 `conflictingCandidateCount` takes precedence over boolean `hasConflict` when both are provided.
 
-#### Sub-signal A — Score Variance (0–8)
+#### Sub-signal A — Score Stability (0–6)
 
 Population standard deviation of `combinedScore` across all candidates:
 
 | Condition | Points |
 |---|---|
 | No candidates | 0 |
-| Only 1 candidate | 4 (neutral — variance unmeasurable) |
-| std dev < 0.10 | 8 |
-| std dev < 0.20 | 6 |
-| std dev < 0.30 | 4 |
-| std dev ≥ 0.30 | 2 |
+| Only 1 candidate | 3 (neutral — variance unmeasurable) |
+| std dev < 0.10 | 6 |
+| std dev < 0.20 | 5 |
+| std dev < 0.30 | 3 |
+| std dev ≥ 0.30 | 1 |
 
-#### Sub-signal B — Conflict Status (−2 to +2, total floor 0)
+#### Sub-signal B — Conflict Signal (0–4)
 
-| Condition | Adjustment |
+| Condition | Points |
 |---|---|
-| `conflictingCandidateCount = 0` or no conflict indicators | +2 |
-| `conflictingCandidateCount = 1` | 0 |
-| `conflictingCandidateCount ≥ 2` | −2 |
-| `hasConflict = true` (boolean fallback, no count given) | −2 |
+| `conflictingCandidateCount = 0` | 4 |
+| `hasConflict = false` (no count given) | 4 |
+| No conflict signal provided | 2 + warning `missing-conflict-signal` |
+| `conflictingCandidateCount = 1` | 1 |
+| `conflictingCandidateCount ≥ 2` | 0 |
+| `hasConflict = true` (no count given) | 0 |
+
+> **v0.2 change:** tight retrieval scores are not treated as proof of semantic agreement. An explicit `hasConflict: false` or `conflictingCandidateCount: 0` earns the full conflict-signal points. Omitting both generates a warning and a conservative neutral score.
+
+---
+
+## Retrieval Tuning
+
+The retrieval dimension is fully configurable via `config.retrieval`.
+
+### Score bands
+
+Default score bands (`full: 0.80, high: 0.65, medium: 0.50, low: 0.35`) assume `combinedScore` is normalized to `[0, 1]`. If your scores are not in that range, tune the bands:
+
+```typescript
+computeConfidence(inputs, {
+  retrieval: {
+    scoreBands: {
+      full: 0.95,   // your system's "great" threshold
+      high: 0.80,
+      medium: 0.60,
+      low: 0.40,
+    },
+  },
+});
+```
+
+> **Warning:** BM25, ColBERT, reranker, and cross-encoder scores are not comparable to cosine similarity without normalization. If you pass unnormalized scores as `combinedScore`, configure `scoreBands` to match your distribution before deploying.
+
+### Single-vector retrieval
+
+For pipelines that use one retrieval method only:
+
+```typescript
+computeConfidence(inputs, {
+  retrieval: {
+    minConfirmedMethods: 1,   // 1 method is enough for confirmation
+  },
+});
+```
+
+Without this, all candidates fail the default "2+ methods" check and method agreement scores at its lowest band (3 pts).
+
+### Method-specific thresholds
+
+```typescript
+computeConfidence(inputs, {
+  retrieval: {
+    methodThresholds: {
+      semantic: 0.70,   // semantic score must exceed 0.70 to confirm
+      keyword:  0.40,   // keyword score must exceed 0.40 to confirm
+      rerank:   0.80,
+    },
+  },
+});
+```
+
+### Top-K magnitude window
+
+```typescript
+computeConfidence(inputs, {
+  retrieval: {
+    topK: 5,   // average magnitude over top 5 instead of top 3
+  },
+});
+```
+
+---
+
+## Answer Relevance
+
+The Answer Relevance dimension (max 15 pts) scores whether the answer addresses the user's question. This is distinct from grounding — a grounded answer can still be off-topic.
+
+### Activation
+
+Relevance is active when:
+- `inputs.answerRelevanceScore` is provided (any value), or
+- `config.relevance.required === true` (scores 0 + warning if score is missing)
+
+```typescript
+const scorecard = computeConfidence(
+  { ...inputs, answerRelevanceScore: 0.92 },
+  {},
+);
+// Relevance now in Tier 1 and meta.activeDimensions
+```
+
+### Scoring
+
+| Score | Points |
+|---|---|
+| ≥ 0.90 | 15 |
+| ≥ 0.75 | 12 |
+| ≥ 0.60 | 8 |
+| ≥ 0.40 | 4 |
+| < 0.40 | 0 |
+| Missing (required) | 0 + warning `missing-answer-relevance` |
+
+Custom bands:
+
+```typescript
+computeConfidence(inputs, {
+  relevance: {
+    required: true,
+    scoreBands: { full: 0.95, high: 0.80, medium: 0.65, low: 0.50 },
+  },
+});
+```
+
+---
+
+## Dimension Weights
+
+You can override the max-point weight for any dimension. The default weight for each dimension equals its native max points, so default behavior is unchanged. Activating a custom weight changes how much of the 0–100 total that dimension can contribute.
+
+```typescript
+computeConfidence(inputs, {
+  weights: {
+    grounding:   50,   // double grounding's influence
+    retrieval:   20,
+    consistency: 10,
+    relevance:   15,   // only included if relevance is active
+    authority:   15,
+    corpus:      10,
+    freshness:   10,
+  },
+});
+```
+
+### Default weights
+
+| Dimension | Default weight |
+|---|---|
+| grounding | 30 |
+| retrieval | 25 |
+| consistency | 10 |
+| relevance | 15 |
+| authority | 20 |
+| corpus | 15 |
+| freshness | 15 |
+
+### How it works
+
+For each active dimension:
+
+```
+weightedRaw = (dimension.raw / dimension.max) × activeWeight
+```
+
+When `activeWeight === dimension.max` (the default), `weightedRaw = dimension.raw` — so default behavior is identical to the v0.1 formula. Proof: `(raw / max) × max = raw`.
+
+Changing a weight does not change `dimension.raw` — it changes how much that dimension contributes to the total. `meta.weights` always shows the active weights used.
+
+---
+
+## Machine-readable Breakdowns
+
+Every dimension returns a `breakdown` object for dashboards, diffing, and audit trails.
+
+```typescript
+interface DimensionBreakdown {
+  components:  Record<string, number>;  // positive sub-signal contributions
+  adjustments: Record<string, number>;  // penalties, bonuses, caps, rounding
+  diagnostics?: Record<string, number | string | boolean>;  // facts, not points
+  uncappedRaw: number;  // score before final clamp
+  raw: number;          // final raw score (equals DimensionScore.raw)
+}
+```
+
+**Invariant:** `breakdown.raw === DimensionScore.raw` for every active dimension, always. This is enforced by tests.
+
+**Example — grounding breakdown for a multi-hop query:**
+
+```json
+{
+  "components":  { "supportBase": 30 },
+  "adjustments": { "complexityCeiling": -12, "citationBonus": 2 },
+  "uncappedRaw": 20,
+  "raw": 20
+}
+```
+
+**Example — retrieval breakdown:**
+
+```json
+{
+  "components": {
+    "agreement": 15,
+    "magnitude": 8,
+    "diversity": 3,
+    "breadth":   1
+  },
+  "adjustments": {},
+  "diagnostics": {
+    "topScoreGap": 0.03,
+    "scoreStdDev": 0.024,
+    "singleMethodCandidateCount": 0,
+    "duplicateContentHashCount": 0
+  },
+  "uncappedRaw": 27,
+  "raw": 25
+}
+```
+
+---
+
+## Observability Logging
+
+Log the full scorecard as structured JSON for observability pipelines (OpenTelemetry, Datadog, Splunk, etc.):
+
+```typescript
+const scorecard = computeConfidence(inputs, config);
+
+// Structured log entry — include alongside the answer in your LLM response log
+const confidenceLog = {
+  timestamp:         new Date().toISOString(),
+  algorithmVersion:  scorecard.meta.algorithmVersion,
+  total:             scorecard.total,
+  label:             scorecard.label,
+  recommendedAction: scorecard.recommendedAction,
+  actionReason:      scorecard.actionReason,
+  tier1Score:        scorecard.tier1?.score,
+  tier2Score:        scorecard.tier2?.score,
+  rawTotal:          scorecard.meta.rawTotal,
+  maxPossible:       scorecard.meta.maxPossible,
+  activeExtensions:  scorecard.meta.activeExtensions,
+  warningCodes:      scorecard.meta.warnings.map((w) => w.code),
+  missingSignals:    scorecard.meta.missingSignals,
+  dimensions: Object.fromEntries(
+    scorecard.meta.activeDimensions.map((name) => [
+      name,
+      {
+        raw:         scorecard.dimensions[name]?.raw,
+        max:         scorecard.dimensions[name]?.max,
+        normalized:  scorecard.dimensions[name]?.normalized,
+      },
+    ]),
+  ),
+};
+
+logger.info('rag_confidence', confidenceLog);
+```
+
+This gives you per-dimension drift tracking, warning-code alerting, and action distribution monitoring without any additional infrastructure.
 
 ---
 
@@ -394,7 +776,7 @@ function createScorer(config: ScoringConfig): {
 Returns a scorer pre-bound to a config. Use when scoring many answers against the same corpus/authority setup.
 
 ```typescript
-const scorer = createScorer({ corpus: { expectedDocCount: 10 } });
+const scorer = createScorer({ corpus: { expectedTypeCount: 10 } });
 const s1 = scorer.compute(inputs1);
 const s2 = scorer.compute(inputs2);
 ```
@@ -405,7 +787,7 @@ const s2 = scorer.compute(inputs2);
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `confidenceLevel` | `'high' \| 'medium' \| 'low'` | ✅ | LLM self-assessed confidence in the answer |
+| `supportLevel` | `'high' \| 'medium' \| 'low'` | ✅ | How strongly the retrieved sources support the answer |
 | `candidates` | `Candidate[]` | ✅ | Retrieved chunks used to produce the answer |
 | `ambiguityNotes` | `string \| null` | — | Non-null value signals the LLM found ambiguity in the source |
 | `requiresExpertReview` | `boolean` | — | LLM recommends human expert review |
@@ -413,11 +795,17 @@ const s2 = scorer.compute(inputs2);
 | `documentsSilent` | `boolean` | — | True when source documents do not address the question at all |
 | `hasConflict` | `boolean` | — | Documents contain conflicting information |
 | `conflictingCandidateCount` | `number` | — | Number of conflicting candidates (overrides `hasConflict`) |
-| `queryComplexity` | `'direct' \| 'inferential' \| 'multi-hop' \| 'comparative'` | — | Complexity of the question type; applies ceiling to grounding |
-| `faithfulnessScore` | `number` | — | 0–1 external faithfulness score (e.g. RAGAs); applies modifier to grounding |
-| `citationCount` | `number` | — | Number of distinct source sections explicitly cited in the answer |
-| `corpusDocCount` | `number` | — | Current document count in the corpus (required when Corpus extension active) |
+| `queryComplexity` | `'direct' \| 'inferential' \| 'multi-hop' \| 'comparative'` | — | Complexity ceiling applied to grounding |
+| `faithfulnessScore` | `number` | — | 0–1 external faithfulness score; applies modifier to grounding |
+| `claimSupport` | `ClaimSupport` | — | Claim-level support summary (alternative to `faithfulnessScore`) |
+| `citationCount` | `number` | — | Distinct source sections explicitly cited in the answer |
+| `citationCoverageScore` | `number` | — | 0–1 fraction of answer covered by valid citations |
+| `invalidCitationCount` | `number` | — | Citations that do not support the cited answer text |
+| `answerRelevanceScore` | `number` | — | 0–1 relevance score; activates the Answer Relevance dimension |
+| `corpusTypeCount` | `number` | — | Current document type count in the corpus (required when Corpus extension active) |
+| `presentTypes` | `string[]` | — | Named document types present (alternative to `corpusTypeCount` for named-type mode) |
 | `missingRelevantType` | `boolean` | — | True when a known relevant document type is not in the corpus |
+| `missingTypes` | `string[]` | — | Named document types known to be missing for this query |
 
 ### `Candidate`
 
@@ -431,6 +819,8 @@ const s2 = scorer.compute(inputs2);
 | `isAmendment` | `boolean` | — | True if this candidate comes from an amendment to the base document |
 | `extractionQuality` | `number` | — | 0–1 OCR or extraction quality multiplier applied to `combinedScore` |
 | `lastUpdated` | `Date` | — | Document last-updated date; used by Freshness extension |
+| `contentHash` | `string` | — | Stable content hash for duplicate detection (diagnostic-only in v0.2) |
+| `rank` | `number` | — | 1-based final retrieval/rerank position from your pipeline |
 
 ### `ScoringConfig`
 
@@ -438,22 +828,31 @@ All fields optional. Passing a key activates that extension.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `authority` | `{ tiers?: AuthorityTier[] }` | — | Activates Source Authority extension |
-| `authority.tiers` | `AuthorityTier[]` | See below | Custom authority tier definitions |
-| `corpus` | `{ expectedDocCount: number }` | — | Activates Corpus Completeness extension |
-| `corpus.expectedDocCount` | `number` | *(required)* | Number of document types expected in a complete corpus |
+| `retrieval` | `RetrievalConfig` | — | Retrieval scoring overrides |
+| `retrieval.scoreBands` | `Partial<{ full, high, medium, low }>` | `0.80/0.65/0.50/0.35` | Score magnitude bands |
+| `retrieval.minConfirmedMethods` | `number` | `2` | Methods needed to confirm a candidate |
+| `retrieval.defaultMethodThreshold` | `number` | `0` | Score threshold for method confirmation |
+| `retrieval.methodThresholds` | `Record<string, number>` | `{}` | Per-method score thresholds |
+| `retrieval.topK` | `number` | `3` | Candidates used for magnitude scoring |
+| `relevance` | `RelevanceConfig` | — | Activates Answer Relevance dimension |
+| `relevance.required` | `boolean` | `false` | If true, missing score generates a warning and scores 0 |
+| `relevance.scoreBands` | `Partial<{ full, high, medium, low }>` | `0.90/0.75/0.60/0.40` | Relevance score bands |
+| `authority` | `AuthorityConfig` | — | Activates Source Authority extension |
+| `authority.tiers` | `AuthorityTier[]` | Primary/Secondary/Supporting | Custom document hierarchy |
+| `authority.aggregation` | `'weighted' \| 'best'` | `'weighted'` | `'best'` reproduces v0.1 min-rank behavior |
+| `authority.topK` | `number` | `5` | Candidates included in authority scoring |
+| `corpus` | `CorpusConfig` | — | Activates Corpus Completeness extension |
+| `corpus.expectedTypeCount` | `number` | *(required)* | Document types expected in a complete corpus |
+| `corpus.expectedTypes` | `string[]` | — | Named expected types (infers `expectedTypeCount`) |
 | `freshness` | `FreshnessConfig` | — | Activates Document Freshness extension |
-| `freshness.maxAgeForFullScore` | `number` (days) | 90 | Documents within this age receive full freshness points |
-| `freshness.penaltyPerMonth` | `number` | 1.5 | Points deducted per 30-day increment beyond window |
-| `freshness.hardCutoffAge` | `number` (days) | 730 | Documents at or beyond this age score 0 |
-
-**Default Authority tiers** (when `config.authority.tiers` is omitted):
-
-| Name | Rank |
-|---|---|
-| Primary | 10 |
-| Secondary | 20 |
-| Supporting | 30 |
+| `freshness.maxAgeForFullScore` | `number` (days) | `90` | Documents within this age receive full freshness points |
+| `freshness.penaltyPerMonth` | `number` | `1.5` | Points deducted per 30-day increment beyond window |
+| `freshness.hardCutoffAge` | `number` (days) | `730` | Documents at or beyond this age score 0 |
+| `freshness.now` | `Date` | `new Date()` | Reference date for deterministic replay and tests |
+| `freshness.aggregation` | `'median' \| 'oldest' \| 'newest'` | `'median'` | Which document age to score |
+| `weights` | `Partial<Record<DimensionName, number>>` | — | Custom max-point weights per dimension |
+| `actionPolicy` | `ActionPolicy` | — | Custom thresholds and warning lists |
+| `validation` | `'warn' \| 'strict'` | `'warn'` | Strict mode throws on input issues |
 
 ### `ConfidenceScorecard`
 
@@ -462,17 +861,26 @@ All fields optional. Passing a key activates that extension.
 | `total` | `number` | Normalized score 0–100 (integer) |
 | `label` | `'Strong' \| 'Moderate' \| 'Limited' \| 'Insufficient'` | Human-readable label |
 | `labelColor` | `'green' \| 'amber' \| 'orange' \| 'red'` | Display color for UI badge |
-| `tier1` | `{ score, label, color } \| null` | Answer Confidence tier (Grounding + Retrieval + Consistency + Authority) |
-| `tier2` | `{ score, label, color } \| null` | System Readiness tier (Corpus + Freshness); null when neither extension active |
+| `recommendedAction` | `'answer' \| 'review' \| 'abstain'` | Runtime action recommendation |
+| `actionReason` | `string` | First rule that decided the action |
+| `tier1` | `Tier1Result \| null` | Answer Confidence tier (Grounding + Retrieval + Consistency + Relevance + Authority) |
+| `tier2` | `Tier2Result \| null` | System Readiness tier (Corpus + Freshness); null when neither extension active |
 | `dimensions.grounding` | `DimensionScore` | Always present |
 | `dimensions.retrieval` | `DimensionScore` | Always present |
 | `dimensions.consistency` | `DimensionScore` | Always present |
+| `dimensions.relevance` | `DimensionScore \| undefined` | Present only when Answer Relevance active |
 | `dimensions.authority` | `DimensionScore \| undefined` | Present only when Authority extension active |
 | `dimensions.corpus` | `DimensionScore \| undefined` | Present only when Corpus extension active |
 | `dimensions.freshness` | `DimensionScore \| undefined` | Present only when Freshness extension active |
-| `meta.rawTotal` | `number` | Sum of raw points before normalization |
-| `meta.maxPossible` | `number` | Maximum achievable raw points given active extensions |
-| `meta.activeExtensions` | `string[]` | Names of active extensions, e.g. `['authority', 'corpus']` |
+| `meta.algorithmVersion` | `string` | Algorithm version, e.g. `'0.2.0'` |
+| `meta.schemaVersion` | `string` | Output schema version, e.g. `'0.2'` |
+| `meta.rawTotal` | `number` | Sum of weighted raw points before normalization |
+| `meta.maxPossible` | `number` | Maximum achievable weighted points given active dimensions |
+| `meta.activeExtensions` | `string[]` | Optional extensions active for this call |
+| `meta.activeDimensions` | `DimensionName[]` | All active dimensions including core |
+| `meta.warnings` | `ConfidenceWarning[]` | Warnings produced during scoring |
+| `meta.missingSignals` | `string[]` | Signals that would improve scoring accuracy if provided |
+| `meta.weights` | `Partial<Record<DimensionName, number>>` | Active weights used for this scorecard |
 
 ### `DimensionScore`
 
@@ -482,6 +890,8 @@ All fields optional. Passing a key activates that extension.
 | `max` | `number` | Maximum raw points for this dimension |
 | `normalized` | `number` | `raw / max × 100`, rounded (0–100) |
 | `explanation` | `string` | Human-readable summary of what drove the score |
+| `breakdown` | `DimensionBreakdown` | Machine-readable sub-signal attribution |
+| `warnings` | `ConfidenceWarning[]?` | Dimension-level warnings (also in `meta.warnings`) |
 
 ---
 
@@ -506,37 +916,65 @@ const scorecard = computeConfidence(inputs, {
 });
 ```
 
-Each candidate is classified by matching `documentType` against tier `keywords`. `authorityRank` on the candidate overrides keyword matching if provided.
+Each candidate is classified by matching `documentType` against tier `keywords` (case-insensitive). `authorityRank` on the candidate overrides keyword matching if provided.
 
-**Scoring:** 18 base pts for highest-authority source found, +1 if any candidate has `isAmendment: true`, +1 if multiple tiers represented. Max 20.
+**v0.2 default — weighted aggregation:** Authority is scored as a weighted average across the top-K candidates, where each candidate's weight is proportional to its `combinedScore`. This rewards answers supported by many strong-scoring authoritative sources, not just the single highest-authority hit.
+
+**v0.1 compat — best source wins:** `aggregation: 'best'` reproduces the original min-rank behavior.
+
+```typescript
+authority: { aggregation: 'best' }
+```
+
+**Scoring table:**
+
+| Effective Rank | Candidate Points |
+|---|---|
+| ≤ 10 | 18 |
+| ≤ 20 | 13 |
+| ≤ 30 | 7 |
+| > 30 or unclassified | 2 |
+
+**Bonuses:** +1 if any included candidate has `isAmendment: true`, +1 if more than one rank bucket is represented. Max 20.
 
 ### Corpus Completeness
 
 Scores how complete the document corpus is relative to what's expected. Surfaces the risk that a correct answer exists but the documents needed to find it haven't been uploaded.
 
 ```typescript
+// Count-based
 const scorecard = computeConfidence(inputs, {
-  corpus: { expectedDocCount: 6 },
+  corpus: { expectedTypeCount: 6 },
 });
-```
 
-Provide `corpusDocCount` on inputs with the current document count. Set `missingRelevantType: true` if a known document type relevant to the query is absent from the corpus.
+// Named-type mode — also tracks which types are missing
+const scorecard2 = computeConfidence(
+  { ...inputs, presentTypes: ['CC&Rs', 'Bylaws', 'Rules'] },
+  { corpus: { expectedTypes: ['CC&Rs', 'Bylaws', 'Rules', 'Amendments', 'Budget'] } },
+);
+```
 
 **Scoring:** 15 pts at 100% coverage, scales down by ratio. −3 penalty for `missingRelevantType`. Floor 0.
 
 ### Document Freshness
 
-Scores how recent the retrieved documents are. Uses the median `lastUpdated` date across all candidates.
+Scores how recent the retrieved documents are.
 
 ```typescript
 const scorecard = computeConfidence(inputs, {
   freshness: {
-    maxAgeForFullScore: 60,   // days — full score if median age ≤ 60
+    maxAgeForFullScore: 60,   // days — full score if selected age ≤ 60
     penaltyPerMonth: 2,       // pts lost per 30-day increment beyond window
     hardCutoffAge: 365,       // days — score = 0 beyond this
+    now: referenceDate,       // inject for deterministic tests and replays
+    aggregation: 'median',    // 'median' (default) | 'oldest' | 'newest'
   },
 });
 ```
+
+- `'median'` — score the median age across candidates (v0.1 behavior)
+- `'oldest'` — score the oldest candidate's age (conservative; useful for compliance)
+- `'newest'` — score the newest candidate's age (useful when any current source is sufficient)
 
 All three config fields are optional; defaults are `maxAgeForFullScore: 90`, `penaltyPerMonth: 1.5`, `hardCutoffAge: 730`. Provide `lastUpdated: Date` on each candidate.
 
@@ -548,16 +986,26 @@ These inputs add nuance to the core dimension scores. All are optional and indep
 
 ### `faithfulnessScore`
 
-A 0–1 score measuring whether the LLM answer text is actually supported by the retrieved passages — distinct from `confidenceLevel`, which reflects LLM self-assessment. Tools like [RAGAs](https://docs.ragas.io/) compute this. Applies a −3 to −12 modifier to grounding, preventing high-confidence scores when the model hallucinates.
+A 0–1 score measuring whether the LLM answer text is actually supported by the retrieved passages — distinct from `supportLevel`, which is a coarse support classification. Tools like [RAGAs](https://docs.ragas.io/) compute this. Applies a −3 to −12 modifier to grounding, preventing high-support scores when the model hallucinates.
+
+### `claimSupport`
+
+Structured claim-level support summary. When both `faithfulnessScore` and `claimSupport` are provided, the scoring uses the more conservative (lower) effective support score.
 
 ```typescript
-{ confidenceLevel: 'high', faithfulnessScore: 0.45, candidates: [...] }
-// confidenceLevel='high' starts at 30; faithfulnessScore < 0.50 → −12 → raw capped lower
+{
+  claimSupport: {
+    totalClaims: 8,
+    supportedClaims: 7,
+    unsupportedClaims: 1,
+    contradictedClaims: 0,
+  }
+}
 ```
 
 ### `queryComplexity`
 
-Indicates the structural complexity of the question. Sets a ceiling on grounding to prevent high grounding scores on questions that require inference the model may not have made correctly.
+Indicates structural complexity of the question. Sets a ceiling on grounding to prevent high scores on questions that require inference the model may not have made correctly.
 
 | Value | Ceiling | Use when |
 |---|---|---|
@@ -566,9 +1014,13 @@ Indicates the structural complexity of the question. Sets a ceiling on grounding
 | `'multi-hop'` | 18 | Answer requires chaining multiple document sections |
 | `'comparative'` | 16 | Comparing two or more policies, rules, or entities |
 
-### `citationCount`
+### `citationCount` / `citationCoverageScore` / `invalidCitationCount`
 
-Number of distinct source sections explicitly cited in the answer. Adds +1 (2 citations) or +2 (≥3 citations) to grounding. Rewards answers that show their work.
+Citation signals reward answers that show their work and penalize those that cite incorrectly. Set `invalidCitationCount: 0` explicitly to confirm all citations are valid.
+
+### `answerRelevanceScore`
+
+Activates the Answer Relevance dimension. Scores whether the answer addresses the user's question, independent of grounding quality.
 
 ### `extractionQuality`
 
@@ -576,26 +1028,64 @@ A 0–1 multiplier per candidate reflecting OCR or PDF extraction quality. Appli
 
 ### Source Diversity (`documentId`)
 
-Setting `documentId` on candidates enables source diversity scoring in the Retrieval dimension. Answers grounded in 3+ distinct documents earn +3 pts; 2 documents earn +1 pt. Encourages retrieval pipelines to cast a wide net rather than pulling multiple chunks from the same document.
+Setting `documentId` on candidates enables source diversity scoring. Answers grounded in 3+ distinct documents earn +3 pts; 2 documents earn +1 pt. Encourages retrieval pipelines to cast a wide net rather than pulling multiple chunks from the same document.
 
 ---
 
 ## Examples
 
-Working examples are in the [`examples/`](examples/) directory. Each file includes the scenario description, expected label, and expected score range in the header comment.
+Working examples are in the [`examples/`](examples/) directory. Each file includes the scenario description, expected label, expected score range, and expected recommended action in the header comment.
 
-| File | Scenario | Expected |
-|---|---|---|
-| [`basic-rag.ts`](examples/basic-rag.ts) | Three core dimensions, zero config | Strong (100) |
-| [`legal-docs.ts`](examples/legal-docs.ts) | Authority + Corpus, HOA governance | Moderate (78) |
-| [`knowledge-base.ts`](examples/knowledge-base.ts) | Freshness only, API documentation KB | Moderate (78) |
-| [`full-pipeline.ts`](examples/full-pipeline.ts) | All six dimensions, all enhanced signals | Strong (91) |
+| File | Scenario | Total | Action |
+|---|---|---|---|
+| [`basic-rag.ts`](examples/basic-rag.ts) | Core dimensions, explicit no-conflict | 100 | `answer` |
+| [`knowledge-base.ts`](examples/knowledge-base.ts) | Vector-only retrieval + Freshness | ~78 | `answer` |
+| [`legal-docs.ts`](examples/legal-docs.ts) | Authority + Corpus, shows warning-driven review | ~74 | `review` |
+| [`full-pipeline.ts`](examples/full-pipeline.ts) | All 7 dimensions, custom action policy | ~90 | `answer` |
 
 Run any example:
 
 ```bash
 npx tsx examples/basic-rag.ts
 ```
+
+---
+
+## Upgrading from 0.1.x to 0.2.0
+
+v0.2.0 includes breaking field renames and behavioral changes. See [`docs/migration-v0-2.md`](docs/migration-v0-2.md) for the full guide.
+
+### Required renames (breaking)
+
+| 0.1.x | 0.2.0 | Why |
+|---|---|---|
+| `confidenceLevel` | `supportLevel` | The signal describes source support, not calibrated model confidence |
+| `corpusDocCount` | `corpusTypeCount` | The Corpus extension counts document types, not raw documents |
+| `corpus.expectedDocCount` | `corpus.expectedTypeCount` | Matches the document-type semantics |
+
+Migration is a direct find-and-replace:
+
+```typescript
+// Before (0.1.x)
+computeConfidence({ confidenceLevel: 'high', corpusDocCount: 4, candidates }, {
+  corpus: { expectedDocCount: 5 },
+});
+
+// After (0.2.0)
+computeConfidence({ supportLevel: 'high', corpusTypeCount: 4, candidates }, {
+  corpus: { expectedTypeCount: 5 },
+});
+```
+
+### Behavioral changes
+
+**Consistency (Dimension 3):** Omitting conflict signals now generates a `missing-conflict-signal` warning and scores conservatively, instead of silently treating the omission as implicit agreement. Pass `hasConflict: false` explicitly.
+
+**Authority (Extension):** Default aggregation changed from "best source wins" (v0.1 min-rank) to weighted average across top-K candidates. Use `authority: { aggregation: 'best' }` to restore v0.1 behavior.
+
+**Recommended action:** `recommendedAction` and `actionReason` are now always present on the scorecard. The default policy includes `missing-conflict-signal` in `reviewOnWarnings`, so scores that were previously labeled Strong may now return `review` if no conflict signal was provided.
+
+**Meta fields added:** `algorithmVersion`, `schemaVersion`, `activeDimensions`, `warnings`, `missingSignals`, `weights`.
 
 ---
 

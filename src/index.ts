@@ -1,11 +1,27 @@
-export { computeConfidence, createScorer } from './scorer.js';
+export {
+  ALGORITHM_VERSION,
+  computeConfidence,
+  createScorer,
+  SCORECARD_SCHEMA_VERSION,
+} from './scorer.js';
 
 export type {
+  ActionPolicy,
   AuthorityTier,
   Candidate,
+  ClaimSupport,
   ConfidenceScorecard,
+  ConfidenceWarning,
+  ConfidenceWarningCode,
+  ConfidenceWarningSeverity,
+  DimensionBreakdown,
+  DimensionName,
   DimensionScore,
   FreshnessConfig,
+  RecommendedAction,
+  RelevanceConfig,
+  RetrievalConfig,
+  RetrievalScoreBands,
   ScoringConfig,
   ScoringInputs,
   Tier1Result,

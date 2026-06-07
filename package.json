@@ -1,7 +1,7 @@
 {
   "name": "transparent-confidence",
-  "version": "0.1.1",
-  "description": "Explainable confidence scoring for RAG system answers — structured 0–100 scorecard across retrieval, grounding, and consistency dimensions",
+  "version": "0.2.0",
+  "description": "Explainable confidence scoring for RAG system answers — structured 0–100 scorecard with action policy, warnings, and machine-readable breakdowns across 7 dimensions",
   "author": "Eric Tetzlaff",
   "license": "Apache-2.0",
   "type": "module",
@@ -44,8 +44,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "coverage": "vitest run --coverage",
-    "lint": "biome check src/",
-    "lint:fix": "biome check --write src/",
+    "lint": "biome check src/ tests/ examples/",
+    "lint:fix": "biome check --write src/ tests/ examples/",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

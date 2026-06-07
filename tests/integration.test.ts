@@ -21,7 +21,7 @@ function multiMethod(combinedScore: number, documentId: string, rank?: number): 
 
 describe('computeConfidence — API contracts', () => {
   const base: ScoringInputs = {
-    confidenceLevel: 'high',
+    supportLevel: 'high',
     candidates: [multiMethod(0.8, 'doc1'), multiMethod(0.75, 'doc2')],
   };
 
@@ -30,6 +30,8 @@ describe('computeConfidence — API contracts', () => {
     expect(sc).toHaveProperty('total');
     expect(sc).toHaveProperty('label');
     expect(sc).toHaveProperty('labelColor');
+    expect(sc).toHaveProperty('recommendedAction');
+    expect(sc).toHaveProperty('actionReason');
     expect(sc).toHaveProperty('tier1');
     expect(sc).toHaveProperty('tier2');
     expect(sc).toHaveProperty('dimensions');
@@ -40,6 +42,17 @@ describe('computeConfidence — API contracts', () => {
     expect(sc.meta).toHaveProperty('rawTotal');
     expect(sc.meta).toHaveProperty('maxPossible');
     expect(sc.meta).toHaveProperty('activeExtensions');
+  });
+
+  test('recommendedAction is one of answer / review / abstain', () => {
+    const sc = computeConfidence(base);
+    expect(['answer', 'review', 'abstain']).toContain(sc.recommendedAction);
+  });
+
+  test('actionReason is a non-empty string', () => {
+    const sc = computeConfidence(base);
+    expect(typeof sc.actionReason).toBe('string');
+    expect(sc.actionReason.length).toBeGreaterThan(0);
   });
 
   test('total is an integer in range 0–100', () => {
@@ -88,8 +101,8 @@ describe('computeConfidence — API contracts', () => {
   });
 
   test('candidates: [] does not throw — returns low score with explanation', () => {
-    expect(() => computeConfidence({ confidenceLevel: 'low', candidates: [] })).not.toThrow();
-    const sc = computeConfidence({ confidenceLevel: 'low', candidates: [] });
+    expect(() => computeConfidence({ supportLevel: 'low', candidates: [] })).not.toThrow();
+    const sc = computeConfidence({ supportLevel: 'low', candidates: [] });
     expect(sc.total).toBeGreaterThanOrEqual(0);
     expect(sc.dimensions.retrieval.explanation).toBeTruthy();
   });
@@ -97,10 +110,10 @@ describe('computeConfidence — API contracts', () => {
 
 describe('createScorer — API contracts', () => {
   test('compute() produces identical result to computeConfidence(inputs, config)', () => {
-    const config = { corpus: { expectedDocCount: 5 } };
+    const config = { corpus: { expectedTypeCount: 5 } };
     const inputs: ScoringInputs = {
-      confidenceLevel: 'medium',
-      corpusDocCount: 4,
+      supportLevel: 'medium',
+      corpusTypeCount: 4,
       candidates: [multiMethod(0.75, 'doc1'), multiMethod(0.7, 'doc2')],
     };
     const scorer = createScorer(config);
@@ -116,7 +129,11 @@ describe('createScorer — API contracts', () => {
 //
 // 5 multi-method candidates, 3 unique docs (2 tiers: rank 10 + 20), one amendment,
 // avg combinedScore ~0.86 (std dev ~0.014), full corpus, fresh docs.
-// Expected: rawTotal = 115, maxPossible = 115 → total = 100, Strong.
+// Consistency (v0.2): std dev ~0.014 < 0.10 → 6 stability; no conflict signal → 2 + warning.
+//   consistency.raw = 8 (was 10 in v0.1).
+// Authority (v0.2 weighted): combinedScores [0.88,0.87,0.86,0.85,0.84], ranks [10,10,20,10,20]
+//   → weighted = 16 base + 1 amendment + 1 tier = 18 (was 20 in v0.1 best-wins).
+//   rawTotal = 111, maxPossible = 115 → round(111/115*100) = round(96.52) = 97, Strong.
 
 describe('Scenario A — perfect answer, all extensions', () => {
   const candidates: Candidate[] = [
@@ -168,23 +185,23 @@ describe('Scenario A — perfect answer, all extensions', () => {
   ];
 
   const inputs: ScoringInputs = {
-    confidenceLevel: 'high',
+    supportLevel: 'high',
     faithfulnessScore: 0.95,
     queryComplexity: 'direct',
     citationCount: 4,
-    corpusDocCount: 5,
+    corpusTypeCount: 5,
     candidates,
   };
 
   const config = {
     authority: {},
-    corpus: { expectedDocCount: 5 },
+    corpus: { expectedTypeCount: 5 },
     freshness: {},
   };
 
-  test('total = 100', () => {
+  test('total = 97', () => {
     const sc = computeConfidence(inputs, config);
-    expect(sc.total).toBe(100);
+    expect(sc.total).toBe(97);
   });
 
   test('label = Strong', () => {
@@ -209,6 +226,14 @@ describe('Scenario A — perfect answer, all extensions', () => {
     expect(sc.tier2).not.toBeNull();
     expect(sc.tier2?.label).toBe('Complete');
   });
+
+  test('recommendedAction = review (missing-conflict-signal in reviewOnWarnings, fires before answerAt)', () => {
+    // No hasConflict or conflictingCandidateCount → missing-conflict-signal warning.
+    // Rule 5 fires before rule 6 even though total=97 >= answerAt=65.
+    const sc = computeConfidence(inputs, config);
+    expect(sc.recommendedAction).toBe('review');
+    expect(sc.actionReason).toContain('missing-conflict-signal');
+  });
 });
 
 // ── Scenario B — documentsSilent ─────────────────────────────────────────────
@@ -221,7 +246,7 @@ describe('Scenario A — perfect answer, all extensions', () => {
 
 describe('Scenario B — documentsSilent', () => {
   const inputs: ScoringInputs = {
-    confidenceLevel: 'low',
+    supportLevel: 'low',
     documentsSilent: true,
     candidates: [],
   };
@@ -246,6 +271,12 @@ describe('Scenario B — documentsSilent', () => {
     const sc = computeConfidence(inputs);
     expect(sc.dimensions.grounding.raw).toBe(0);
   });
+
+  test('recommendedAction = abstain (documentsSilent rule 1)', () => {
+    const sc = computeConfidence(inputs);
+    expect(sc.recommendedAction).toBe('abstain');
+    expect(sc.actionReason).toContain('documentsSilent');
+  });
 });
 
 // ── Scenario C — Low conf, thin corpus (Insufficient) ────────────────────────
@@ -254,21 +285,22 @@ describe('Scenario B — documentsSilent', () => {
 // Grounding: low → 5.
 // Retrieval: 0 confirmed → 3; avg 0.50 → 4; 1 doc + 1 candidate → 0.
 //   retrieval.raw = 7.
-// Consistency: 1 candidate → 4 neutral; no conflict → +2. consistency.raw = 6.
+// Consistency (v0.2): 1 candidate → 3 stability; no conflict signal → 2 + warning.
+//   consistency.raw = 5.
 // Corpus: 1/5 = 20% → base 2. corpus.raw = 2.
-// rawTotal = 20, maxPossible = 80 → total = 25, Insufficient.
+// rawTotal = 19, maxPossible = 80 → total = round(23.75) = 24, Insufficient.
 
 describe('Scenario C — low confidence, thin corpus', () => {
   const inputs: ScoringInputs = {
-    confidenceLevel: 'low',
-    corpusDocCount: 1,
+    supportLevel: 'low',
+    corpusTypeCount: 1,
     candidates: [{ retrievalScores: { semantic: 0.5 }, combinedScore: 0.5, documentId: 'doc1' }],
   };
-  const config = { corpus: { expectedDocCount: 5 } };
+  const config = { corpus: { expectedTypeCount: 5 } };
 
-  test('total = 25', () => {
+  test('total = 24', () => {
     const sc = computeConfidence(inputs, config);
-    expect(sc.total).toBe(25);
+    expect(sc.total).toBe(24);
   });
 
   test('label = Insufficient', () => {
@@ -280,6 +312,12 @@ describe('Scenario C — low confidence, thin corpus', () => {
     const sc = computeConfidence(inputs, config);
     expect(sc.meta.maxPossible).toBe(80);
   });
+
+  test('recommendedAction = abstain (total 24 < abstainBelow 40, rule 3)', () => {
+    const sc = computeConfidence(inputs, config);
+    expect(sc.recommendedAction).toBe('abstain');
+    expect(sc.actionReason).toContain('abstainBelow');
+  });
 });
 
 // ── Scenario D — Medium confidence, clean retrieval (Moderate) ───────────────
@@ -288,8 +326,9 @@ describe('Scenario C — low confidence, thin corpus', () => {
 // Grounding: medium → 13.
 // Retrieval: 3 confirmed → 15; avg 0.75 → 6; 3 unique docs → 3; 3 candidates → 1.
 //   retrieval.raw = 25 (capped, 15+6+3+1=25).
-// Consistency: std dev 0.082 < 0.10 → 8; no conflict → +2. consistency.raw = 10.
-// rawTotal = 48, maxPossible = 65 → total = round(73.8) = 74, Moderate.
+// Consistency (v0.2): std dev 0.082 < 0.10 → 6 stability; no conflict signal → 2 + warning.
+//   consistency.raw = 8.
+// rawTotal = 46, maxPossible = 65 → total = round(70.77) = 71, Moderate.
 
 describe('Scenario D — medium confidence, clean retrieval', () => {
   const candidates: Candidate[] = [
@@ -298,16 +337,23 @@ describe('Scenario D — medium confidence, clean retrieval', () => {
     { retrievalScores: { semantic: 0.75, keyword: 0.7 }, combinedScore: 0.7, documentId: 'doc3' },
   ];
 
-  const inputs: ScoringInputs = { confidenceLevel: 'medium', candidates };
+  const inputs: ScoringInputs = { supportLevel: 'medium', candidates };
 
-  test('total = 74', () => {
+  test('total = 71', () => {
     const sc = computeConfidence(inputs);
-    expect(sc.total).toBe(74);
+    expect(sc.total).toBe(71);
   });
 
   test('label = Moderate', () => {
     const sc = computeConfidence(inputs);
     expect(sc.label).toBe('Moderate');
+  });
+
+  test('recommendedAction = review (missing-conflict-signal in reviewOnWarnings, rule 5)', () => {
+    // total=71 >= answerAt=65, but rule 5 fires first due to missing-conflict-signal.
+    const sc = computeConfidence(inputs);
+    expect(sc.recommendedAction).toBe('review');
+    expect(sc.actionReason).toContain('missing-conflict-signal');
   });
 });
 
@@ -317,8 +363,9 @@ describe('Scenario D — medium confidence, clean retrieval', () => {
 // Grounding: high → 30; multi-hop ceiling → 18; faithfulness 0.45 → -12 → 6.
 // Retrieval: 3 confirmed → 15; avg 0.75 → 6; 3 unique docs → 3; 3 candidates → 1.
 //   retrieval.raw = 25 (capped).
-// Consistency: std dev 0.082 < 0.10 → 8; no conflict → +2. consistency.raw = 10.
-// rawTotal = 41, maxPossible = 65 → total = round(63.1) = 63, Limited.
+// Consistency (v0.2): std dev 0.082 < 0.10 → 6 stability; no conflict signal → 2 + warning.
+//   consistency.raw = 8.
+// rawTotal = 39, maxPossible = 65 → total = round(60.0) = 60, Limited.
 
 describe('Scenario E — high conf, multi-hop, low faithfulness', () => {
   const candidates: Candidate[] = [
@@ -328,15 +375,15 @@ describe('Scenario E — high conf, multi-hop, low faithfulness', () => {
   ];
 
   const inputs: ScoringInputs = {
-    confidenceLevel: 'high',
+    supportLevel: 'high',
     queryComplexity: 'multi-hop',
     faithfulnessScore: 0.45,
     candidates,
   };
 
-  test('total = 63', () => {
+  test('total = 60', () => {
     const sc = computeConfidence(inputs);
-    expect(sc.total).toBe(63);
+    expect(sc.total).toBe(60);
   });
 
   test('label = Limited', () => {
@@ -348,13 +395,20 @@ describe('Scenario E — high conf, multi-hop, low faithfulness', () => {
     const sc = computeConfidence(inputs);
     expect(sc.dimensions.grounding.raw).toBe(6);
   });
+
+  test('recommendedAction = review (missing-conflict-signal in reviewOnWarnings, rule 5)', () => {
+    // total=60 ≥ reviewAt=40 but < answerAt=65; rule 5 fires before rule 6/7.
+    const sc = computeConfidence(inputs);
+    expect(sc.recommendedAction).toBe('review');
+    expect(sc.actionReason).toContain('missing-conflict-signal');
+  });
 });
 
 // ── Extension activation tests ────────────────────────────────────────────────
 
 describe('extension activation', () => {
   const baseInputs: ScoringInputs = {
-    confidenceLevel: 'high',
+    supportLevel: 'high',
     candidates: [multiMethod(0.8, 'doc1')],
   };
 
@@ -367,8 +421,8 @@ describe('extension activation', () => {
 
   test('corpus extension: maxPossible = 80, dimensions.corpus present, tier2 present', () => {
     const sc = computeConfidence(
-      { ...baseInputs, corpusDocCount: 3 },
-      { corpus: { expectedDocCount: 5 } },
+      { ...baseInputs, corpusTypeCount: 3 },
+      { corpus: { expectedTypeCount: 5 } },
     );
     expect(sc.meta.maxPossible).toBe(80);
     expect(sc.dimensions.corpus).toBeDefined();
@@ -388,10 +442,10 @@ describe('extension activation', () => {
 
   test('all three extensions: maxPossible = 115, activeExtensions length = 3', () => {
     const sc = computeConfidence(
-      { ...baseInputs, corpusDocCount: 3 },
+      { ...baseInputs, corpusTypeCount: 3 },
       {
         authority: {},
-        corpus: { expectedDocCount: 5 },
+        corpus: { expectedTypeCount: 5 },
         freshness: {},
       },
     );
@@ -405,9 +459,9 @@ describe('extension activation', () => {
 describe('normalization invariants', () => {
   test('total is always an integer across multiple inputs', () => {
     const cases: ScoringInputs[] = [
-      { confidenceLevel: 'high', candidates: [multiMethod(0.9, 'doc1')] },
-      { confidenceLevel: 'medium', candidates: [multiMethod(0.7, 'doc1')] },
-      { confidenceLevel: 'low', candidates: [] },
+      { supportLevel: 'high', candidates: [multiMethod(0.9, 'doc1')] },
+      { supportLevel: 'medium', candidates: [multiMethod(0.7, 'doc1')] },
+      { supportLevel: 'low', candidates: [] },
     ];
     for (const inputs of cases) {
       const sc = computeConfidence(inputs);
@@ -418,10 +472,10 @@ describe('normalization invariants', () => {
   test('rawTotal never exceeds maxPossible with all extensions active', () => {
     const sc = computeConfidence(
       {
-        confidenceLevel: 'high',
+        supportLevel: 'high',
         faithfulnessScore: 0.99,
         citationCount: 5,
-        corpusDocCount: 10,
+        corpusTypeCount: 10,
         candidates: [
           {
             ...multiMethod(0.95, 'doc1', 5),
@@ -437,11 +491,121 @@ describe('normalization invariants', () => {
       },
       {
         authority: {},
-        corpus: { expectedDocCount: 5 },
+        corpus: { expectedTypeCount: 5 },
         freshness: {},
       },
     );
     expect(sc.meta.rawTotal).toBeLessThanOrEqual(sc.meta.maxPossible);
     expect(sc.total).toBeLessThanOrEqual(100);
+  });
+});
+
+// ── breakdown.raw === DimensionScore.raw invariant ────────────────────────────
+//
+// Phase 10 gate requirement: for every active dimension, breakdown.raw must
+// equal DimensionScore.raw. This holds regardless of caps, bonuses, or rounding.
+
+describe('breakdown.raw === DimensionScore.raw invariant', () => {
+  const NOW = new Date('2026-01-01T00:00:00.000Z');
+
+  test('core three dimensions — all raw values match their breakdown.raw', () => {
+    const sc = computeConfidence({
+      supportLevel: 'high',
+      hasConflict: false,
+      faithfulnessScore: 0.85,
+      queryComplexity: 'inferential',
+      citationCount: 2,
+      candidates: [multiMethod(0.88, 'doc1'), multiMethod(0.82, 'doc2'), multiMethod(0.76, 'doc3')],
+    });
+    expect(sc.dimensions.grounding.breakdown?.raw).toBe(sc.dimensions.grounding.raw);
+    expect(sc.dimensions.retrieval.breakdown?.raw).toBe(sc.dimensions.retrieval.raw);
+    expect(sc.dimensions.consistency.breakdown?.raw).toBe(sc.dimensions.consistency.raw);
+  });
+
+  test('relevance dimension — breakdown.raw matches DimensionScore.raw', () => {
+    const sc = computeConfidence({
+      supportLevel: 'high',
+      answerRelevanceScore: 0.78,
+      candidates: [],
+    });
+    expect(sc.dimensions.relevance?.breakdown?.raw).toBe(sc.dimensions.relevance?.raw);
+  });
+
+  test('authority dimension — breakdown.raw matches DimensionScore.raw', () => {
+    const sc = computeConfidence(
+      {
+        supportLevel: 'high',
+        candidates: [
+          { ...multiMethod(0.9, 'doc1'), authorityRank: 10, isAmendment: true },
+          { ...multiMethod(0.8, 'doc2'), authorityRank: 20 },
+        ],
+      },
+      { authority: {} },
+    );
+    expect(sc.dimensions.authority?.breakdown?.raw).toBe(sc.dimensions.authority?.raw);
+  });
+
+  test('corpus dimension — breakdown.raw matches DimensionScore.raw', () => {
+    const sc = computeConfidence(
+      { supportLevel: 'high', corpusTypeCount: 3, candidates: [] },
+      { corpus: { expectedTypeCount: 5 } },
+    );
+    expect(sc.dimensions.corpus?.breakdown?.raw).toBe(sc.dimensions.corpus?.raw);
+  });
+
+  test('freshness dimension — breakdown.raw matches DimensionScore.raw', () => {
+    const sc = computeConfidence(
+      {
+        supportLevel: 'high',
+        candidates: [
+          { ...multiMethod(0.85, 'doc1'), lastUpdated: new Date(NOW.getTime() - 30 * 86400000) },
+        ],
+      },
+      { freshness: { now: NOW } },
+    );
+    expect(sc.dimensions.freshness?.breakdown?.raw).toBe(sc.dimensions.freshness?.raw);
+  });
+
+  test('all 7 dimensions simultaneously — every breakdown.raw matches', () => {
+    const sc = computeConfidence(
+      {
+        supportLevel: 'high',
+        hasConflict: false,
+        faithfulnessScore: 0.92,
+        answerRelevanceScore: 0.88,
+        corpusTypeCount: 5,
+        candidates: [
+          {
+            ...multiMethod(0.9, 'doc1'),
+            authorityRank: 10,
+            isAmendment: true,
+            lastUpdated: new Date(NOW.getTime() - 20 * 86400000),
+          },
+          {
+            ...multiMethod(0.85, 'doc2'),
+            authorityRank: 20,
+            lastUpdated: new Date(NOW.getTime() - 40 * 86400000),
+          },
+          {
+            ...multiMethod(0.8, 'doc3'),
+            authorityRank: 20,
+            lastUpdated: new Date(NOW.getTime() - 60 * 86400000),
+          },
+        ],
+      },
+      {
+        authority: {},
+        corpus: { expectedTypeCount: 5 },
+        freshness: { now: NOW },
+      },
+    );
+    const dims = sc.dimensions;
+    expect(dims.grounding.breakdown?.raw).toBe(dims.grounding.raw);
+    expect(dims.retrieval.breakdown?.raw).toBe(dims.retrieval.raw);
+    expect(dims.consistency.breakdown?.raw).toBe(dims.consistency.raw);
+    expect(dims.relevance?.breakdown?.raw).toBe(dims.relevance?.raw);
+    expect(dims.authority?.breakdown?.raw).toBe(dims.authority?.raw);
+    expect(dims.corpus?.breakdown?.raw).toBe(dims.corpus?.raw);
+    expect(dims.freshness?.breakdown?.raw).toBe(dims.freshness?.raw);
   });
 });

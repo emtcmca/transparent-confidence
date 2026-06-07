@@ -1,90 +1,140 @@
-import type { DimensionScore, ScoringInputs } from '../types.js';
+import type {
+  ConfidenceWarning,
+  DimensionBreakdown,
+  DimensionScore,
+  ScoringInputs,
+} from '../types.js';
+import { createWarning } from '../warnings.js';
 
 const MAX = 10;
 
 /**
  * Dimension 3 — Evidence Consistency (max 10 raw pts)
  *
- * Two sub-signals:
- *   A. Score variance (0–8): how tightly clustered are the candidate scores?
- *      Tight clustering = consistent retrieval = higher confidence.
- *   B. Conflict status (0–+2 or −2): are the candidates in agreement?
- *      No conflict = +2 bonus; significant conflict = −2 penalty.
+ * Two sub-signals summed, capped at [0, 10]:
+ *   A. Score stability (0–6): how tightly clustered are the candidate scores?
+ *      Tight clustering = consistent retrieval signal.
+ *   B. Conflict signal (0–4): explicit evidence conflict status.
+ *      Explicit no-conflict is rewarded. Missing conflict signal is neutral-ish but flagged.
+ *      Missing signal is NOT treated as confirmed agreement.
  *
- * Max 10 is achievable: variance < 0.10 (8 pts) + no conflict (+2 pts) = 10.
+ * Max 10: std dev < 0.10 (6) + explicit no-conflict (4) = 10.
  */
 export function scoreConsistency(inputs: ScoringInputs): DimensionScore {
   const { candidates } = inputs;
+  const warnings: ConfidenceWarning[] = [];
   const parts: string[] = [];
 
   if (candidates.length === 0) {
+    const breakdown: DimensionBreakdown = {
+      components: { scoreStability: 0, conflictStatus: 0 },
+      adjustments: {},
+      diagnostics: { candidateCount: 0 },
+      uncappedRaw: 0,
+      raw: 0,
+    };
     return {
       raw: 0,
       max: MAX,
       normalized: 0,
       explanation: 'No candidates retrieved — evidence consistency cannot be evaluated.',
+      breakdown,
+      warnings: [],
     };
   }
 
-  // ── Sub-signal A: Score variance (0–8) ──────────────────────
-  let variancePts: number;
+  // ── Sub-signal A: Score stability (0–6) ─────────────────────
+  let stabilityPts: number;
+  let computedStdDev = 0;
 
   if (candidates.length === 1) {
-    variancePts = 4;
-    parts.push('Single candidate retrieved — variance unmeasurable, neutral score assigned.');
+    stabilityPts = 3;
+    parts.push('Single candidate retrieved — stability unmeasurable, neutral score assigned.');
   } else {
     const scores = candidates.map((c) => c.combinedScore);
-    const sd = stdDev(scores);
+    computedStdDev = stdDev(scores);
 
-    if (sd < 0.1) {
-      variancePts = 8;
-      parts.push(`Score std dev ${sd.toFixed(3)} — very tight retrieval consistency.`);
-    } else if (sd < 0.2) {
-      variancePts = 6;
-      parts.push(`Score std dev ${sd.toFixed(3)} — good retrieval consistency.`);
-    } else if (sd < 0.3) {
-      variancePts = 4;
-      parts.push(`Score std dev ${sd.toFixed(3)} — moderate retrieval consistency.`);
+    if (computedStdDev < 0.1) {
+      stabilityPts = 6;
+      parts.push(`Score std dev ${computedStdDev.toFixed(3)} — very tight retrieval stability.`);
+    } else if (computedStdDev < 0.2) {
+      stabilityPts = 5;
+      parts.push(`Score std dev ${computedStdDev.toFixed(3)} — good retrieval stability.`);
+    } else if (computedStdDev < 0.3) {
+      stabilityPts = 3;
+      parts.push(`Score std dev ${computedStdDev.toFixed(3)} — moderate retrieval stability.`);
     } else {
-      variancePts = 2;
-      parts.push(`Score std dev ${sd.toFixed(3)} — scattered retrieval scores.`);
+      stabilityPts = 1;
+      parts.push(`Score std dev ${computedStdDev.toFixed(3)} — scattered retrieval scores.`);
     }
   }
 
-  // ── Sub-signal B: Conflict status (−2 to +2) ────────────────
-  // Prefer conflictingCandidateCount when provided; fall back to boolean hasConflict.
-  let conflictAdj: number;
+  // ── Sub-signal B: Conflict signal (0–4) ─────────────────────
+  // conflictingCandidateCount takes precedence over boolean hasConflict.
+  // Missing conflict signal is not treated as agreement — it earns 2 pts + warning.
+  let conflictPts: number;
+  const hasCount = inputs.conflictingCandidateCount !== undefined;
+  const hasBool = inputs.hasConflict !== undefined;
 
-  if (inputs.conflictingCandidateCount !== undefined) {
+  if (hasCount) {
     if (inputs.conflictingCandidateCount === 0) {
-      conflictAdj = 2;
-      parts.push('No conflicting candidates — full agreement (+2).');
+      conflictPts = 4;
+      parts.push('Explicit no-conflict signal provided (+4).');
     } else if (inputs.conflictingCandidateCount === 1) {
-      conflictAdj = 0;
-      parts.push('1 conflicting candidate detected.');
+      conflictPts = 1;
+      parts.push('1 conflicting candidate detected (+1).');
     } else {
-      conflictAdj = -2;
-      parts.push(`${inputs.conflictingCandidateCount} conflicting candidates detected (−2).`);
+      conflictPts = 0;
+      parts.push(`${inputs.conflictingCandidateCount} conflicting candidates detected (+0).`);
     }
-  } else if (inputs.hasConflict === true) {
-    conflictAdj = -2;
-    parts.push('Conflicting information detected across candidates (−2).');
+  } else if (hasBool) {
+    if (inputs.hasConflict === false) {
+      conflictPts = 4;
+      parts.push('Explicit no-conflict signal provided (+4).');
+    } else {
+      conflictPts = 0;
+      parts.push('Conflict detected across candidates (+0).');
+    }
   } else {
-    conflictAdj = 2;
-    parts.push('No conflict detected (+2).');
+    conflictPts = 2;
+    parts.push('No conflict signal provided — treating as neutral (+2).');
+    warnings.push(
+      createWarning(
+        'missing-conflict-signal',
+        'No conflict signal was provided (hasConflict or conflictingCandidateCount). Score is conservative.',
+        'hasConflict',
+      ),
+    );
   }
 
-  const raw = Math.max(0, Math.min(MAX, variancePts + conflictAdj));
+  const uncappedRaw = stabilityPts + conflictPts;
+  const raw = Math.max(0, Math.min(MAX, uncappedRaw));
+
+  const breakdown: DimensionBreakdown = {
+    components: {
+      scoreStability: stabilityPts,
+      conflictStatus: conflictPts,
+    },
+    adjustments: raw < uncappedRaw ? { cap: raw - uncappedRaw } : {},
+    diagnostics: {
+      candidateCount: candidates.length,
+      scoreStdDev: Number(computedStdDev.toFixed(4)),
+    },
+    uncappedRaw,
+    raw,
+  };
 
   return {
     raw,
     max: MAX,
     normalized: Math.round((raw / MAX) * 100),
     explanation: parts.join(' '),
+    breakdown,
+    warnings: warnings.length > 0 ? warnings : [],
   };
 }
 
-/** Population standard deviation of an array of numbers. */
+/** Population standard deviation. */
 function stdDev(values: number[]): number {
   const n = values.length;
   if (n < 2) return 0;
