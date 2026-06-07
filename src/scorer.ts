@@ -3,6 +3,7 @@ import { scoreConsistency } from './dimensions/consistency.js';
 import { scoreCorpus } from './dimensions/corpus.js';
 import { scoreFreshness } from './dimensions/freshness.js';
 import { scoreGrounding } from './dimensions/grounding.js';
+import { scoreRelevance } from './dimensions/relevance.js';
 import { scoreRetrieval } from './dimensions/retrieval.js';
 import { deriveLabel, deriveTier1, deriveTier2 } from './labels.js';
 import { normalize } from './normalize.js';
@@ -11,11 +12,13 @@ import { collectInputWarnings, enforceInputValidation, validateConfig } from './
 import { missingSignalsForWarnings, uniqueWarnings } from './warnings.js';
 
 const CORE_MAX = 65; // grounding(30) + retrieval(25) + consistency(10)
+const RELEVANCE_MAX = 15;
 const AUTHORITY_MAX = 20;
 const CORPUS_MAX = 15;
 const FRESHNESS_MAX = 15;
-const ALGORITHM_VERSION = '0.2.0';
-const SCORECARD_SCHEMA_VERSION = '0.2';
+
+export const ALGORITHM_VERSION = '0.2.0';
+export const SCORECARD_SCHEMA_VERSION = '0.2';
 
 /**
  * Computes a structured confidence scorecard for a RAG answer.
@@ -33,6 +36,8 @@ export function computeConfidence(
   const validationWarnings = collectInputWarnings(inputs, config);
   enforceInputValidation(validationWarnings, config);
 
+  const hasRelevance =
+    inputs.answerRelevanceScore !== undefined || config.relevance?.required === true;
   const hasAuthority = config.authority !== undefined;
   const hasCorpus = config.corpus !== undefined;
   const hasFreshness = config.freshness !== undefined;
@@ -40,22 +45,26 @@ export function computeConfidence(
   const grounding = scoreGrounding(inputs);
   const retrieval = scoreRetrieval(inputs, config);
   const consistency = scoreConsistency(inputs);
+  const relevance = hasRelevance ? scoreRelevance(inputs.answerRelevanceScore, config) : undefined;
   const authority = hasAuthority ? scoreAuthority(inputs, config) : undefined;
   const corpus = hasCorpus ? scoreCorpus(inputs, config) : undefined;
   const freshness = hasFreshness ? scoreFreshness(inputs, config) : undefined;
 
   const activeExtensions: string[] = [];
+  if (hasRelevance) activeExtensions.push('relevance');
   if (hasAuthority) activeExtensions.push('authority');
   if (hasCorpus) activeExtensions.push('corpus');
   if (hasFreshness) activeExtensions.push('freshness');
 
   const activeDimensions: DimensionName[] = ['grounding', 'retrieval', 'consistency'];
+  if (hasRelevance) activeDimensions.push('relevance');
   if (hasAuthority) activeDimensions.push('authority');
   if (hasCorpus) activeDimensions.push('corpus');
   if (hasFreshness) activeDimensions.push('freshness');
 
   const maxPossible =
     CORE_MAX +
+    (hasRelevance ? RELEVANCE_MAX : 0) +
     (hasAuthority ? AUTHORITY_MAX : 0) +
     (hasCorpus ? CORPUS_MAX : 0) +
     (hasFreshness ? FRESHNESS_MAX : 0);
@@ -64,6 +73,7 @@ export function computeConfidence(
     grounding.raw +
     retrieval.raw +
     consistency.raw +
+    (relevance?.raw ?? 0) +
     (authority?.raw ?? 0) +
     (corpus?.raw ?? 0) +
     (freshness?.raw ?? 0);
@@ -75,14 +85,17 @@ export function computeConfidence(
     ...(grounding.warnings ?? []),
     ...(retrieval.warnings ?? []),
     ...(consistency.warnings ?? []),
+    ...(relevance?.warnings ?? []),
     ...(authority?.warnings ?? []),
     ...(corpus?.warnings ?? []),
     ...(freshness?.warnings ?? []),
   ]);
 
-  // Tier 1: grounding + retrieval + consistency + authority
-  const tier1Raw = grounding.raw + retrieval.raw + consistency.raw + (authority?.raw ?? 0);
-  const tier1Max = CORE_MAX + (hasAuthority ? AUTHORITY_MAX : 0);
+  // Tier 1: grounding + retrieval + consistency + relevance (when active) + authority (when active)
+  const tier1Raw =
+    grounding.raw + retrieval.raw + consistency.raw + (relevance?.raw ?? 0) + (authority?.raw ?? 0);
+  const tier1Max =
+    CORE_MAX + (hasRelevance ? RELEVANCE_MAX : 0) + (hasAuthority ? AUTHORITY_MAX : 0);
   const tier1 = deriveTier1(tier1Raw, tier1Max, inputs.documentsSilent === true);
 
   // Tier 2: corpus + freshness — null when neither extension is active
@@ -105,6 +118,7 @@ export function computeConfidence(
       grounding,
       retrieval,
       consistency,
+      ...(relevance !== undefined && { relevance }),
       ...(authority !== undefined && { authority }),
       ...(corpus !== undefined && { corpus }),
       ...(freshness !== undefined && { freshness }),
@@ -122,6 +136,7 @@ export function computeConfidence(
         grounding: 30,
         retrieval: 25,
         consistency: 10,
+        ...(hasRelevance && { relevance: RELEVANCE_MAX }),
         ...(hasAuthority && { authority: AUTHORITY_MAX }),
         ...(hasCorpus && { corpus: CORPUS_MAX }),
         ...(hasFreshness && { freshness: FRESHNESS_MAX }),

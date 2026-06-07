@@ -1,4 +1,9 @@
-export { computeConfidence, createScorer } from './scorer.js';
+export {
+  ALGORITHM_VERSION,
+  computeConfidence,
+  createScorer,
+  SCORECARD_SCHEMA_VERSION,
+} from './scorer.js';
 
 export type {
   ActionPolicy,
