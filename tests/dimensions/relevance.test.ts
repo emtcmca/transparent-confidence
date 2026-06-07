@@ -191,14 +191,14 @@ describe('scoreRelevance - Tier 1 inclusion', () => {
     expect(with_.tier1).not.toBeNull();
     expect(without.tier1).not.toBeNull();
     // tier1 score can only increase or equal (perfect relevance adds raw 15)
-    expect(with_.tier1?.score).toBeGreaterThanOrEqual(without.tier1?.score);
+    expect(with_.tier1?.score ?? 0).toBeGreaterThanOrEqual(without.tier1?.score ?? 0);
   });
 
   test('relevance score 0 (missing required) lowers tier1 vs no relevance', () => {
     const without = computeConfidence(baseInputs, {});
     const with_ = computeConfidence(baseInputs, { relevance: { required: true } });
     // Adding required relevance with score 0 adds 0 raw to numerator but 15 to denominator
-    expect(with_.tier1?.score).toBeLessThanOrEqual(without.tier1?.score);
+    expect(with_.tier1?.score ?? 0).toBeLessThanOrEqual(without.tier1?.score ?? 100);
   });
 });
 

@@ -116,7 +116,8 @@ describe('createScorer — API contracts', () => {
 //
 // 5 multi-method candidates, 3 unique docs (2 tiers: rank 10 + 20), one amendment,
 // avg combinedScore ~0.86 (std dev ~0.014), full corpus, fresh docs.
-// Expected: rawTotal = 115, maxPossible = 115 → total = 100, Strong.
+// Consistency (v0.2): std dev ~0.014 < 0.10 → 6 stability; no conflict signal → 2 + warning.
+//   consistency.raw = 8 (was 10 in v0.1). rawTotal = 113, maxPossible = 115 → total = 98, Strong.
 
 describe('Scenario A — perfect answer, all extensions', () => {
   const candidates: Candidate[] = [
@@ -182,9 +183,9 @@ describe('Scenario A — perfect answer, all extensions', () => {
     freshness: {},
   };
 
-  test('total = 100', () => {
+  test('total = 98', () => {
     const sc = computeConfidence(inputs, config);
-    expect(sc.total).toBe(100);
+    expect(sc.total).toBe(98);
   });
 
   test('label = Strong', () => {
@@ -254,9 +255,10 @@ describe('Scenario B — documentsSilent', () => {
 // Grounding: low → 5.
 // Retrieval: 0 confirmed → 3; avg 0.50 → 4; 1 doc + 1 candidate → 0.
 //   retrieval.raw = 7.
-// Consistency: 1 candidate → 4 neutral; no conflict → +2. consistency.raw = 6.
+// Consistency (v0.2): 1 candidate → 3 stability; no conflict signal → 2 + warning.
+//   consistency.raw = 5.
 // Corpus: 1/5 = 20% → base 2. corpus.raw = 2.
-// rawTotal = 20, maxPossible = 80 → total = 25, Insufficient.
+// rawTotal = 19, maxPossible = 80 → total = round(23.75) = 24, Insufficient.
 
 describe('Scenario C — low confidence, thin corpus', () => {
   const inputs: ScoringInputs = {
@@ -266,9 +268,9 @@ describe('Scenario C — low confidence, thin corpus', () => {
   };
   const config = { corpus: { expectedTypeCount: 5 } };
 
-  test('total = 25', () => {
+  test('total = 24', () => {
     const sc = computeConfidence(inputs, config);
-    expect(sc.total).toBe(25);
+    expect(sc.total).toBe(24);
   });
 
   test('label = Insufficient', () => {
@@ -288,8 +290,9 @@ describe('Scenario C — low confidence, thin corpus', () => {
 // Grounding: medium → 13.
 // Retrieval: 3 confirmed → 15; avg 0.75 → 6; 3 unique docs → 3; 3 candidates → 1.
 //   retrieval.raw = 25 (capped, 15+6+3+1=25).
-// Consistency: std dev 0.082 < 0.10 → 8; no conflict → +2. consistency.raw = 10.
-// rawTotal = 48, maxPossible = 65 → total = round(73.8) = 74, Moderate.
+// Consistency (v0.2): std dev 0.082 < 0.10 → 6 stability; no conflict signal → 2 + warning.
+//   consistency.raw = 8.
+// rawTotal = 46, maxPossible = 65 → total = round(70.77) = 71, Moderate.
 
 describe('Scenario D — medium confidence, clean retrieval', () => {
   const candidates: Candidate[] = [
@@ -300,9 +303,9 @@ describe('Scenario D — medium confidence, clean retrieval', () => {
 
   const inputs: ScoringInputs = { supportLevel: 'medium', candidates };
 
-  test('total = 74', () => {
+  test('total = 71', () => {
     const sc = computeConfidence(inputs);
-    expect(sc.total).toBe(74);
+    expect(sc.total).toBe(71);
   });
 
   test('label = Moderate', () => {
@@ -317,8 +320,9 @@ describe('Scenario D — medium confidence, clean retrieval', () => {
 // Grounding: high → 30; multi-hop ceiling → 18; faithfulness 0.45 → -12 → 6.
 // Retrieval: 3 confirmed → 15; avg 0.75 → 6; 3 unique docs → 3; 3 candidates → 1.
 //   retrieval.raw = 25 (capped).
-// Consistency: std dev 0.082 < 0.10 → 8; no conflict → +2. consistency.raw = 10.
-// rawTotal = 41, maxPossible = 65 → total = round(63.1) = 63, Limited.
+// Consistency (v0.2): std dev 0.082 < 0.10 → 6 stability; no conflict signal → 2 + warning.
+//   consistency.raw = 8.
+// rawTotal = 39, maxPossible = 65 → total = round(60.0) = 60, Limited.
 
 describe('Scenario E — high conf, multi-hop, low faithfulness', () => {
   const candidates: Candidate[] = [
@@ -334,9 +338,9 @@ describe('Scenario E — high conf, multi-hop, low faithfulness', () => {
     candidates,
   };
 
-  test('total = 63', () => {
+  test('total = 60', () => {
     const sc = computeConfidence(inputs);
-    expect(sc.total).toBe(63);
+    expect(sc.total).toBe(60);
   });
 
   test('label = Limited', () => {

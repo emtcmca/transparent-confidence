@@ -1426,13 +1426,13 @@ If v0.1.2 is skipped, v0.2 README must make the breaking changes extremely clear
 
 ### Steps
 
-- [ ] Replace every runtime use of `confidenceLevel` with `supportLevel`.
-- [ ] Replace every runtime use of `corpusDocCount` with `corpusTypeCount`.
-- [ ] Replace every runtime use of `expectedDocCount` with `expectedTypeCount`.
-- [ ] Update all tests to use new field names.
-- [ ] Update all examples to use new field names.
-- [ ] Update README quick start and API tables.
-- [ ] Add README migration section with exact replacements:
+- [x] Replace every runtime use of `confidenceLevel` with `supportLevel`.
+- [x] Replace every runtime use of `corpusDocCount` with `corpusTypeCount`.
+- [x] Replace every runtime use of `expectedDocCount` with `expectedTypeCount`.
+- [x] Update all tests to use new field names.
+- [x] Update all examples to use new field names.
+- [x] Update README quick start and API tables.
+- [x] Add README migration section with exact replacements:
 
 ```text
 confidenceLevel -> supportLevel
@@ -1474,13 +1474,13 @@ Expected:
 
 ### Steps
 
-- [ ] Add all v0.2 public types from the "Public API Target" section.
-- [ ] Export new public types from `src/index.ts`.
-- [ ] Implement config validation.
-- [ ] Implement input validation.
-- [ ] Implement warning constructors.
-- [ ] Add tests for config errors.
-- [ ] Add tests for input warnings and strict mode.
+- [x] Add all v0.2 public types from the "Public API Target" section.
+- [x] Export new public types from `src/index.ts`.
+- [x] Implement config validation.
+- [x] Implement input validation.
+- [x] Implement warning constructors.
+- [x] Add tests for config errors.
+- [x] Add tests for input warnings and strict mode.
 
 ### Gate
 
@@ -1507,14 +1507,14 @@ Expected: all commands exit 0.
 
 ### Steps
 
-- [ ] Change `scoreRetrieval` signature to accept config.
-- [ ] Merge retrieval defaults with partial user config.
-- [ ] Add method thresholds.
-- [ ] Add `minConfirmedMethods`.
-- [ ] Add `topK`.
-- [ ] Add top score gap diagnostics.
-- [ ] Add structured breakdown.
-- [ ] Update tests for defaults and overrides.
+- [x] Change `scoreRetrieval` signature to accept config.
+- [x] Merge retrieval defaults with partial user config.
+- [x] Add method thresholds.
+- [x] Add `minConfirmedMethods`.
+- [x] Add `topK`.
+- [x] Add top score gap diagnostics.
+- [x] Add structured breakdown.
+- [x] Update tests for defaults and overrides.
 
 ### Gate
 
@@ -1539,13 +1539,13 @@ Expected: retrieval tests pass first, then full suite passes.
 
 ### Steps
 
-- [ ] Replace `confidenceLevel` logic with `supportLevel`.
-- [ ] Add claim support score handling.
-- [ ] Add citation coverage handling.
-- [ ] Add invalid citation handling.
-- [ ] Add structured breakdown.
-- [ ] Add dimension warnings.
-- [ ] Update tests for support levels, claims, faithfulness, and citation quality.
+- [x] Replace `confidenceLevel` logic with `supportLevel`.
+- [x] Add claim support score handling.
+- [x] Add citation coverage handling.
+- [x] Add invalid citation handling.
+- [x] Add structured breakdown.
+- [x] Add dimension warnings.
+- [x] Update tests for support levels, claims, faithfulness, and citation quality.
 
 ### Gate
 
@@ -1571,11 +1571,11 @@ Expected: grounding tests pass first, then full suite passes.
 
 ### Steps
 
-- [ ] Change score stability points to v0.2 table.
-- [ ] Change conflict signal points to v0.2 table.
-- [ ] Add warning for missing conflict signal.
-- [ ] Add structured breakdown.
-- [ ] Update README wording: this dimension measures retrieval score stability plus explicit conflict status.
+- [x] Change score stability points to v0.2 table.
+- [x] Change conflict signal points to v0.2 table.
+- [x] Add warning for missing conflict signal.
+- [x] Add structured breakdown.
+- [ ] Update README wording: this dimension measures retrieval score stability plus explicit conflict status. *(Phase 9)*
 
 ### Gate
 
@@ -1603,12 +1603,12 @@ Expected: consistency tests pass first, then full suite passes.
 
 ### Steps
 
-- [ ] Add relevance scorer.
-- [ ] Activate relevance when score is provided or required.
-- [ ] Include relevance in Tier 1 when active.
-- [ ] Add relevance to active dimensions and maxPossible.
-- [ ] Add warning behavior when required and missing.
-- [ ] Add README section explaining answer relevance vs grounding.
+- [x] Add relevance scorer.
+- [x] Activate relevance when score is provided or required.
+- [x] Include relevance in Tier 1 when active.
+- [x] Add relevance to active dimensions and maxPossible.
+- [x] Add warning behavior when required and missing.
+- [ ] Add README section explaining answer relevance vs grounding. *(Phase 9)*
 
 ### Gate
 
