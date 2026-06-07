@@ -80,4 +80,30 @@ describe('validation — input issues', () => {
       }),
     );
   });
+
+  test('records inconsistent claimSupport counts as input-out-of-range warning', () => {
+    const scorecard = computeConfidence({
+      ...baseInputs,
+      claimSupport: { totalClaims: 3, supportedClaims: 3, contradictedClaims: 1 },
+    });
+
+    expect(scorecard.meta.warnings).toContainEqual(
+      expect.objectContaining({
+        code: 'input-out-of-range',
+        path: 'claimSupport',
+      }),
+    );
+  });
+
+  test('throws for inconsistent claimSupport counts in strict validation mode', () => {
+    expect(() =>
+      computeConfidence(
+        {
+          ...baseInputs,
+          claimSupport: { totalClaims: 3, supportedClaims: 3, contradictedClaims: 1 },
+        },
+        { validation: 'strict' },
+      ),
+    ).toThrow(/claimSupport/);
+  });
 });

@@ -1,4 +1,5 @@
 import type {
+  ClaimSupport,
   ConfidenceWarning,
   RetrievalScoreBands,
   ScoringConfig,
@@ -73,6 +74,31 @@ export function collectInputWarnings(
       }
     }
   });
+
+  if (inputs.claimSupport !== undefined) {
+    const warning = claimSupportWarning(inputs.claimSupport);
+    if (warning !== undefined) warnings.push(warning);
+  }
+
+  if (inputs.faithfulnessScore !== undefined && !isScore(inputs.faithfulnessScore)) {
+    warnings.push(
+      createWarning(
+        'input-out-of-range',
+        'faithfulnessScore should be a finite number in the 0-1 range.',
+        'faithfulnessScore',
+      ),
+    );
+  }
+
+  if (inputs.citationCoverageScore !== undefined && !isScore(inputs.citationCoverageScore)) {
+    warnings.push(
+      createWarning(
+        'input-out-of-range',
+        'citationCoverageScore should be a finite number in the 0-1 range.',
+        'citationCoverageScore',
+      ),
+    );
+  }
 
   if (config.freshness !== undefined) {
     const hasFreshnessDates = inputs.candidates.some(
@@ -228,4 +254,52 @@ function assertBands(name: string, bands: RetrievalScoreBands): void {
 
 function isScore(value: number): boolean {
   return Number.isFinite(value) && value >= 0 && value <= 1;
+}
+
+function claimSupportWarning(claimSupport: ClaimSupport): ConfidenceWarning | undefined {
+  const contradictedClaims = claimSupport.contradictedClaims ?? 0;
+  const unsupportedClaims = claimSupport.unsupportedClaims;
+  const counts = [
+    claimSupport.totalClaims,
+    claimSupport.supportedClaims,
+    contradictedClaims,
+    ...(unsupportedClaims !== undefined ? [unsupportedClaims] : []),
+  ];
+
+  if (!counts.every((count) => Number.isInteger(count) && count >= 0)) {
+    return createWarning(
+      'input-out-of-range',
+      'Claim support counts should be finite non-negative integers.',
+      'claimSupport',
+    );
+  }
+
+  if (claimSupport.totalClaims <= 0) {
+    return createWarning(
+      'input-out-of-range',
+      'claimSupport.totalClaims must be greater than 0.',
+      'claimSupport',
+    );
+  }
+
+  if (claimSupport.supportedClaims + contradictedClaims > claimSupport.totalClaims) {
+    return createWarning(
+      'input-out-of-range',
+      'claimSupport supportedClaims + contradictedClaims cannot exceed totalClaims.',
+      'claimSupport',
+    );
+  }
+
+  if (
+    unsupportedClaims !== undefined &&
+    claimSupport.supportedClaims + unsupportedClaims + contradictedClaims > claimSupport.totalClaims
+  ) {
+    return createWarning(
+      'input-out-of-range',
+      'claimSupport supportedClaims + unsupportedClaims + contradictedClaims cannot exceed totalClaims.',
+      'claimSupport',
+    );
+  }
+
+  return undefined;
 }
