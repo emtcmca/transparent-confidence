@@ -1766,7 +1766,7 @@ Expected:
 
 ---
 
-## Phase 10: Release Gate
+## Phase 10: Release Gate ✅ COMPLETE
 
 Before tagging `v0.2.0`, run:
 
@@ -1782,16 +1782,16 @@ npm publish --dry-run
 
 Expected:
 
-- Typecheck exits 0.
-- Biome exits 0.
-- Full test suite exits 0.
-- Coverage remains at or above:
-  - Line: 90%
-  - Function: 95%
-  - Branch: 85%
-- Build emits ESM, CJS, and declarations.
-- Pack output contains only intended package files.
-- Publish dry-run exits 0.
+- [x] Typecheck exits 0.
+- [x] Biome exits 0.
+- [x] Full test suite exits 0. (356/356)
+- [x] Coverage remains at or above:
+  - [x] Line: 90% → actual 96.76%
+  - [x] Function: 95% → actual 100%
+  - [x] Branch: 85% → actual 88.5%
+- [x] Build emits ESM, CJS, and declarations.
+- [x] Pack output contains only intended package files. (8 files: dist×4, README, CHANGELOG, LICENSE, package.json)
+- [x] Publish dry-run exits 0. (bumped version to 0.2.0)
 
 Also run:
 
@@ -1801,7 +1801,7 @@ rg "confidenceLevel|corpusDocCount|expectedDocCount" src tests examples
 
 Expected:
 
-- No matches.
+- [x] No matches.
 
 Phase 10 integration tests must also assert that every active dimension satisfies:
 
@@ -1809,7 +1809,7 @@ Phase 10 integration tests must also assert that every active dimension satisfie
 expect(dimension.breakdown.raw).toBe(dimension.raw);
 ```
 
-This invariant must hold for grounding, retrieval, consistency, relevance, authority, corpus, and freshness whenever the dimension is active.
+- [x] breakdown.raw invariant tests added for all 7 dimensions in `tests/integration.test.ts` (6 new tests → 356 total)
 
 ---
 

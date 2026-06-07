@@ -499,3 +499,113 @@ describe('normalization invariants', () => {
     expect(sc.total).toBeLessThanOrEqual(100);
   });
 });
+
+// ── breakdown.raw === DimensionScore.raw invariant ────────────────────────────
+//
+// Phase 10 gate requirement: for every active dimension, breakdown.raw must
+// equal DimensionScore.raw. This holds regardless of caps, bonuses, or rounding.
+
+describe('breakdown.raw === DimensionScore.raw invariant', () => {
+  const NOW = new Date('2026-01-01T00:00:00.000Z');
+
+  test('core three dimensions — all raw values match their breakdown.raw', () => {
+    const sc = computeConfidence({
+      supportLevel: 'high',
+      hasConflict: false,
+      faithfulnessScore: 0.85,
+      queryComplexity: 'inferential',
+      citationCount: 2,
+      candidates: [multiMethod(0.88, 'doc1'), multiMethod(0.82, 'doc2'), multiMethod(0.76, 'doc3')],
+    });
+    expect(sc.dimensions.grounding.breakdown?.raw).toBe(sc.dimensions.grounding.raw);
+    expect(sc.dimensions.retrieval.breakdown?.raw).toBe(sc.dimensions.retrieval.raw);
+    expect(sc.dimensions.consistency.breakdown?.raw).toBe(sc.dimensions.consistency.raw);
+  });
+
+  test('relevance dimension — breakdown.raw matches DimensionScore.raw', () => {
+    const sc = computeConfidence({
+      supportLevel: 'high',
+      answerRelevanceScore: 0.78,
+      candidates: [],
+    });
+    expect(sc.dimensions.relevance?.breakdown?.raw).toBe(sc.dimensions.relevance?.raw);
+  });
+
+  test('authority dimension — breakdown.raw matches DimensionScore.raw', () => {
+    const sc = computeConfidence(
+      {
+        supportLevel: 'high',
+        candidates: [
+          { ...multiMethod(0.9, 'doc1'), authorityRank: 10, isAmendment: true },
+          { ...multiMethod(0.8, 'doc2'), authorityRank: 20 },
+        ],
+      },
+      { authority: {} },
+    );
+    expect(sc.dimensions.authority?.breakdown?.raw).toBe(sc.dimensions.authority?.raw);
+  });
+
+  test('corpus dimension — breakdown.raw matches DimensionScore.raw', () => {
+    const sc = computeConfidence(
+      { supportLevel: 'high', corpusTypeCount: 3, candidates: [] },
+      { corpus: { expectedTypeCount: 5 } },
+    );
+    expect(sc.dimensions.corpus?.breakdown?.raw).toBe(sc.dimensions.corpus?.raw);
+  });
+
+  test('freshness dimension — breakdown.raw matches DimensionScore.raw', () => {
+    const sc = computeConfidence(
+      {
+        supportLevel: 'high',
+        candidates: [
+          { ...multiMethod(0.85, 'doc1'), lastUpdated: new Date(NOW.getTime() - 30 * 86400000) },
+        ],
+      },
+      { freshness: { now: NOW } },
+    );
+    expect(sc.dimensions.freshness?.breakdown?.raw).toBe(sc.dimensions.freshness?.raw);
+  });
+
+  test('all 7 dimensions simultaneously — every breakdown.raw matches', () => {
+    const sc = computeConfidence(
+      {
+        supportLevel: 'high',
+        hasConflict: false,
+        faithfulnessScore: 0.92,
+        answerRelevanceScore: 0.88,
+        corpusTypeCount: 5,
+        candidates: [
+          {
+            ...multiMethod(0.9, 'doc1'),
+            authorityRank: 10,
+            isAmendment: true,
+            lastUpdated: new Date(NOW.getTime() - 20 * 86400000),
+          },
+          {
+            ...multiMethod(0.85, 'doc2'),
+            authorityRank: 20,
+            lastUpdated: new Date(NOW.getTime() - 40 * 86400000),
+          },
+          {
+            ...multiMethod(0.8, 'doc3'),
+            authorityRank: 20,
+            lastUpdated: new Date(NOW.getTime() - 60 * 86400000),
+          },
+        ],
+      },
+      {
+        authority: {},
+        corpus: { expectedTypeCount: 5 },
+        freshness: { now: NOW },
+      },
+    );
+    const dims = sc.dimensions;
+    expect(dims.grounding.breakdown?.raw).toBe(dims.grounding.raw);
+    expect(dims.retrieval.breakdown?.raw).toBe(dims.retrieval.raw);
+    expect(dims.consistency.breakdown?.raw).toBe(dims.consistency.raw);
+    expect(dims.relevance?.breakdown?.raw).toBe(dims.relevance?.raw);
+    expect(dims.authority?.breakdown?.raw).toBe(dims.authority?.raw);
+    expect(dims.corpus?.breakdown?.raw).toBe(dims.corpus?.raw);
+    expect(dims.freshness?.breakdown?.raw).toBe(dims.freshness?.raw);
+  });
+});
