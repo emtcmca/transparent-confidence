@@ -20,6 +20,9 @@
     "README.md",
     "CHANGELOG.md"
   ],
+  "engines": {
+    "node": ">=20"
+  },
   "keywords": [
     "rag",
     "retrieval-augmented-generation",
