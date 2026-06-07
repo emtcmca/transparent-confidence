@@ -1,6 +1,6 @@
 {
   "name": "transparent-confidence",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Explainable confidence scoring for RAG system answers — structured 0–100 scorecard across retrieval, grounding, and consistency dimensions",
   "author": "Eric Tetzlaff",
   "license": "Apache-2.0",

@@ -912,3 +912,196 @@ These exact scenarios must pass at the Phase 4 gate and remain passing through P
 | E1: configurable retrieval score bands | Enhancement | — |
 | E2: structured sub-signal breakdown | Enhancement | — |
 | E3: injectable `now` for freshness | Enhancement | — |
+
+---
+
+### Pre-work: 0.1.x Deprecation Shim (target 0.1.2)
+
+Ship before 0.2.0. Zero breaking changes — purely additive. Purpose: give existing users a warning window before fields disappear.
+
+**Tasks:**
+
+1. In `src/types.ts`, add deprecated twin fields to `ScoringInputs`:
+   ```typescript
+   /** @deprecated Use supportLevel */
+   confidenceLevel?: 'high' | 'medium' | 'low';
+   supportLevel?: 'high' | 'medium' | 'low';
+
+   /** @deprecated Use corpusTypeCount */
+   corpusDocCount?: number;
+   corpusTypeCount?: number;
+   ```
+   Make `confidenceLevel` optional (currently required). `supportLevel` takes precedence; shim falls back to `confidenceLevel` with a `console.warn`.
+
+2. In `src/dimensions/grounding.ts`, resolve with:
+   ```typescript
+   const level = inputs.supportLevel ?? inputs.confidenceLevel;
+   if (!inputs.supportLevel && inputs.confidenceLevel) {
+     console.warn('[transparent-confidence] confidenceLevel is deprecated. Use supportLevel.');
+   }
+   ```
+
+3. In `src/dimensions/corpus.ts`, resolve `corpusTypeCount ?? corpusDocCount` same pattern.
+
+4. Add `supportLevel` and `corpusTypeCount` to all examples (update existing examples before 0.1.2 ships).
+
+5. Write tests: deprecated field accepted, warning emitted, new field takes precedence.
+
+6. Update CHANGELOG. Update README API table: mark old names `(deprecated in 0.1.2)`.
+
+**Gate:** All 179+ existing tests still pass unchanged. New deprecation tests pass. No type errors.
+
+---
+
+### 0.2.0 Phase A — Breaking Renames (B1 + B2)
+
+**Goal:** Remove deprecated fields entirely. `supportLevel` and `corpusTypeCount` are the only valid names.
+
+**Tasks:**
+
+1. `src/types.ts` — delete `confidenceLevel` and `corpusDocCount` fields. Make `supportLevel` required (same constraints as old `confidenceLevel`). Rename `ScoringConfig.corpus.expectedDocCount` → `expectedTypeCount`.
+2. `src/dimensions/grounding.ts` — remove shim, use `inputs.supportLevel` directly.
+3. `src/dimensions/corpus.ts` — remove shim, use `inputs.corpusTypeCount` and `config.corpus.expectedTypeCount` directly.
+4. Update all examples to use new names.
+5. Update README API Reference table (remove deprecated column).
+6. Write a migration guide section in README: "Upgrading from 0.1.x to 0.2.0" — one-line find-replace for each rename.
+7. Update all tests to use new field names.
+8. Update CHANGELOG.
+
+**Gate:**
+- `tsc --noEmit` exits 0
+- Biome exits 0
+- All tests pass
+- `grep -r "confidenceLevel" src/` returns 0 matches
+- `grep -r "corpusDocCount" src/` returns 0 matches
+
+---
+
+### 0.2.0 Phase B — Configurable Retrieval Score Bands (E1)
+
+**Goal:** Let callers override the hardcoded `combinedScore` magnitude thresholds in `scoreRetrieval`.
+
+**New config shape:**
+
+```typescript
+interface RetrievalScoreBands {
+  full: number;   // default 0.80
+  high: number;   // default 0.65
+  medium: number; // default 0.50
+  low: number;    // default 0.35
+}
+
+interface RetrievalConfig {
+  scoreBands?: RetrievalScoreBands;
+}
+
+// Added to ScoringConfig:
+interface ScoringConfig {
+  retrieval?: RetrievalConfig;
+  authority?: { tiers?: AuthorityTier[] };
+  corpus?: { expectedTypeCount: number };
+  freshness?: FreshnessConfig;
+}
+```
+
+**Tasks:**
+
+1. Add `RetrievalScoreBands` and `RetrievalConfig` interfaces to `src/types.ts`.
+2. Add `retrieval?: RetrievalConfig` to `ScoringConfig`.
+3. In `src/dimensions/retrieval.ts`, extract `getBands(config?)` helper that returns defaults merged with any overrides.
+4. Replace all hardcoded thresholds with band values.
+5. Write tests: custom bands produce expected scores; omitting bands falls back to defaults; partial band override (only `full` provided) merges correctly.
+6. Add example or note in README Extensions section showing custom bands for a BM25 pipeline.
+
+**Gate:**
+- All existing retrieval tests still pass (defaults unchanged)
+- New band-override tests pass
+- `tsc --noEmit` exits 0
+
+---
+
+### 0.2.0 Phase C — Sub-signal Breakdown (E2)
+
+**Goal:** Add machine-readable `breakdown` to `DimensionScore` so dashboards and diff tools can read individual sub-scores.
+
+**Updated type:**
+
+```typescript
+interface DimensionScore {
+  raw: number;
+  max: number;
+  normalized: number;
+  explanation: string;
+  breakdown?: Record<string, number>;  // NEW — additive, always present in 0.2.0
+}
+```
+
+**Breakdown keys by dimension:**
+
+| Dimension | Keys |
+|---|---|
+| grounding | `base`, `penalties`, `complexityCeiling`, `faithfulnessMod`, `citationBonus` |
+| retrieval | `agreement`, `magnitude`, `diversity` |
+| consistency | `variance`, `conflictAdj` |
+| authority | `base`, `amendmentBonus`, `tierBreadthBonus` |
+| corpus | `base`, `missingTypePenalty` |
+| freshness | `base`, `agePenalty` |
+
+**Tasks:**
+
+1. Update `DimensionScore` in `src/types.ts`.
+2. Update each dimension scorer to return `breakdown` with all sub-signals explicitly keyed.
+3. Update integration tests to assert `breakdown` keys are present and values sum to `raw`.
+4. Add breakdown display to `examples/full-pipeline.ts`.
+5. Document in README API Reference: show example `breakdown` object in the `DimensionScore` section.
+
+**Gate:**
+- For every active dimension: `Object.values(scorecard.dimensions[dim].breakdown).reduce(sum) === scorecard.dimensions[dim].raw`
+- All tests pass
+- `tsc --noEmit` exits 0
+
+---
+
+### 0.2.0 Phase D — Injectable `now` for Freshness (E3)
+
+**Goal:** Make freshness scoring deterministic for testing and historical replay.
+
+**Updated config:**
+
+```typescript
+interface FreshnessConfig {
+  maxAgeForFullScore?: number;
+  penaltyPerMonth?: number;
+  hardCutoffAge?: number;
+  now?: Date;  // NEW — injected reference point; defaults to new Date() when omitted
+}
+```
+
+**Tasks:**
+
+1. Add `now?: Date` to `FreshnessConfig` in `src/types.ts`.
+2. In `src/dimensions/freshness.ts`, replace `new Date()` with `config.freshness.now ?? new Date()`.
+3. Update `tests/dimensions/freshness.test.ts`: pass a fixed `now` in all test cases so tests are date-independent.
+4. Write one test explicitly verifying that a document dated 91 days before a fixed `now` triggers the first penalty increment regardless of when the test runs.
+
+**Gate:**
+- All freshness tests pass deterministically (no "test fails on certain dates" risk)
+- `tsc --noEmit` exits 0
+
+---
+
+### 0.2.0 Final Gate
+
+Before tagging `v0.2.0`:
+
+| Check | Command |
+|---|---|
+| Type-check | `tsc --noEmit` |
+| Lint | `npx biome check src/ tests/ examples/` |
+| All tests | `npx vitest run` |
+| Zero deprecated field references in src | `grep -r "confidenceLevel\|corpusDocCount\|expectedDocCount" src/` → 0 matches |
+| Build | `npm run build` |
+| Dry-run publish | `npm publish --dry-run` |
+| Coverage | `npx vitest run --coverage` — all targets met |
+
+Tag `v0.2.0`, push, workflow publishes.
