@@ -37,7 +37,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ericatetzlaff/transparent-confidence.git"
+    "url": "git+https://github.com/emtcmca/transparent-confidence.git"
   },
   "scripts": {
     "build": "tsup src/index.ts --format esm,cjs --dts --out-dir dist",
