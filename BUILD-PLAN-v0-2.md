@@ -1636,13 +1636,13 @@ Expected: relevance tests pass first, then full suite passes.
 
 ### Steps
 
-- [ ] Add weighted authority aggregation.
-- [ ] Add authority compatibility mode `aggregation: 'best'`.
-- [ ] Add unclassified authority warnings.
-- [ ] Add corpus named type support.
-- [ ] Add freshness `now`.
-- [ ] Add freshness aggregation mode.
-- [ ] Add structured breakdowns for all three dimensions.
+- [x] Add weighted authority aggregation.
+- [x] Add authority compatibility mode `aggregation: 'best'`.
+- [x] Add unclassified authority warnings.
+- [x] Add corpus named type support.
+- [x] Add freshness `now`.
+- [x] Add freshness aggregation mode.
+- [x] Add structured breakdowns for all three dimensions.
 
 ### Gate
 

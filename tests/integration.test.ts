@@ -117,7 +117,10 @@ describe('createScorer — API contracts', () => {
 // 5 multi-method candidates, 3 unique docs (2 tiers: rank 10 + 20), one amendment,
 // avg combinedScore ~0.86 (std dev ~0.014), full corpus, fresh docs.
 // Consistency (v0.2): std dev ~0.014 < 0.10 → 6 stability; no conflict signal → 2 + warning.
-//   consistency.raw = 8 (was 10 in v0.1). rawTotal = 113, maxPossible = 115 → total = 98, Strong.
+//   consistency.raw = 8 (was 10 in v0.1).
+// Authority (v0.2 weighted): combinedScores [0.88,0.87,0.86,0.85,0.84], ranks [10,10,20,10,20]
+//   → weighted = 16 base + 1 amendment + 1 tier = 18 (was 20 in v0.1 best-wins).
+//   rawTotal = 111, maxPossible = 115 → round(111/115*100) = round(96.52) = 97, Strong.
 
 describe('Scenario A — perfect answer, all extensions', () => {
   const candidates: Candidate[] = [
@@ -183,9 +186,9 @@ describe('Scenario A — perfect answer, all extensions', () => {
     freshness: {},
   };
 
-  test('total = 98', () => {
+  test('total = 97', () => {
     const sc = computeConfidence(inputs, config);
-    expect(sc.total).toBe(98);
+    expect(sc.total).toBe(97);
   });
 
   test('label = Strong', () => {
