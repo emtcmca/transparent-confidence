@@ -4,26 +4,70 @@
 
 [![npm version](https://img.shields.io/npm/v/transparent-confidence.svg)](https://www.npmjs.com/package/transparent-confidence)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
-[![CI](https://github.com/etetzlaff/transparent-confidence/actions/workflows/ci.yml/badge.svg)](https://github.com/etetzlaff/transparent-confidence/actions/workflows/ci.yml)
+[![CI](https://github.com/emtcmca/transparent-confidence/actions/workflows/ci.yml/badge.svg)](https://github.com/emtcmca/transparent-confidence/actions/workflows/ci.yml)
+[![Tests](https://img.shields.io/badge/tests-179%20passing-brightgreen.svg)](https://github.com/emtcmca/transparent-confidence/actions)
+[![Zero dependencies](https://img.shields.io/badge/dependencies-0-brightgreen.svg)](package.json)
+
+> **Transparent Confidence™** is a scoring methodology that makes RAG answer quality auditable — every point on the 0–100 scale has an explicit reason attached to it.
+
+---
+
+## Contents
+
+- [The Problem](#the-problem)
+- [The Solution](#the-solution)
+- [vs. Alternatives](#vs-alternatives)
+- [Install](#install)
+- [Quick Start](#quick-start)
+- [Algorithm](#algorithm)
+- [API Reference](#api-reference)
+- [Extensions](#extensions)
+- [Enhanced Signals](#enhanced-signals)
+- [Examples](#examples)
+- [Roadmap](#roadmap)
+- [Contributing](#contributing)
+- [License](#license)
 
 ---
 
 ## The Problem
 
-- RAG pipelines produce answers but no reliable signal of whether to trust them
-- Raw retrieval scores (cosine similarity, BM25) are meaningless to end users and even to downstream systems
-- There is no standard for expressing RAG answer quality in a way that is auditable, explainable, and actionable
+You can't put a cosine score in a UI. You can't explain a 0.73 to a compliance team. You can't alert on retrieval drift when the only signal is a number with no context.
+
+RAG pipelines ship answers. They don't ship confidence.
+
+- Retrieval scores (cosine similarity, BM25) measure vector proximity — not whether the answer is correct, grounded, or complete
+- LLM self-assessment (`"I'm confident that..."`) is uncalibrated and invisible to downstream systems
+- There is no standard for expressing RAG answer quality in a way that is auditable, explainable, and actionable at runtime
 
 ---
 
 ## The Solution
 
-`transparent-confidence` computes a typed scorecard (0–100) for any RAG answer:
+`transparent-confidence` computes a typed scorecard (0–100) for any RAG answer at query time — no additional model calls, no infrastructure:
 
 - **Always normalized** — score is 0–100 regardless of which optional dimensions are active
 - **Per-dimension breakdowns** — every point is explainable, not a black box
 - **Tiered display** — Answer Confidence (Tier 1) and System Readiness (Tier 2) shown separately
 - **Zero required config** — three core dimensions work out of the box; optional extensions activate on demand
+- **Zero dependencies** — no ML stack, no server, no model calls; runs inline in any Node.js 20+ process
+
+---
+
+## vs. Alternatives
+
+| | transparent-confidence | RAGAs | TruLens | DeepEval |
+|---|---|---|---|---|
+| Runs at query time | ✅ | ⚠️ async | ⚠️ async | ⚠️ async |
+| Requires LLM calls | ✅ none | ❌ yes | ❌ yes | ❌ yes |
+| Per-dimension breakdown | ✅ | ✅ | ✅ | ✅ |
+| Zero dependencies | ✅ | ❌ | ❌ | ❌ |
+| TypeScript-native types | ✅ | ❌ | ❌ | partial |
+| Authority / corpus / freshness | ✅ | ❌ | ❌ | ❌ |
+
+**RAGAs, TruLens, and DeepEval** are evaluation frameworks — they run offline or in a separate evaluation pipeline and call LLMs to judge answer quality. That's valuable for batch evaluation and benchmarking.
+
+**transparent-confidence** runs inline at query time using signals your pipeline already has: retrieval scores, document metadata, and LLM-assessed confidence. No extra calls. No separate infrastructure. The tradeoff is that it doesn't do LLM-based faithfulness judgment natively — but it accepts an external `faithfulnessScore` if you run one.
 
 ---
 
@@ -33,7 +77,7 @@
 npm install transparent-confidence
 ```
 
-Requires Node.js 18+.
+Requires Node.js 20+.
 
 ---
 
@@ -506,7 +550,7 @@ Planned for future versions — none of these are started or committed:
 
 1. Clone the repo and install dependencies:
    ```bash
-   git clone https://github.com/etetzlaff/transparent-confidence.git
+   git clone https://github.com/emtcmca/transparent-confidence.git
    cd transparent-confidence
    npm install
    ```
@@ -526,7 +570,7 @@ Planned for future versions — none of these are started or committed:
    npm run lint
    ```
 
-5. File issues at [GitHub Issues](https://github.com/etetzlaff/transparent-confidence/issues). PRs welcome — please open an issue first for non-trivial changes.
+5. File issues at [GitHub Issues](https://github.com/emtcmca/transparent-confidence/issues). PRs welcome — please open an issue first for non-trivial changes.
 
 **Test coverage target:** ≥ 90% line, ≥ 95% function, ≥ 85% branch. Run `npm run coverage` to check.
 
