@@ -1,6 +1,6 @@
 # transparent-confidence
 
-**Structured, explainable confidence scoring for RAG systems.**
+**Deterministic, explainable scorecards for RAG answer confidence — using the retrieval, grounding, citation, freshness, and corpus signals your system already has.**
 
 [![npm version](https://img.shields.io/npm/v/transparent-confidence.svg)](https://www.npmjs.com/package/transparent-confidence)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
@@ -17,8 +17,10 @@
 - [The Problem](#the-problem)
 - [The Solution](#the-solution)
 - [vs. Alternatives](#vs-alternatives)
+- [Best for / Not for](#best-for--not-for)
 - [Install](#install)
 - [Quick Start](#quick-start)
+- [From Your Retriever to Candidate\[\]](#from-your-retriever-to-candidate)
 - [Algorithm](#algorithm)
 - [API Reference](#api-reference)
 - [Extensions](#extensions)
@@ -68,6 +70,25 @@ RAG pipelines ship answers. They don't ship confidence.
 **RAGAs, TruLens, and DeepEval** are evaluation frameworks — they run offline or in a separate evaluation pipeline and call LLMs to judge answer quality. That's valuable for batch evaluation and benchmarking.
 
 **transparent-confidence** runs inline at query time using signals your pipeline already has: retrieval scores, document metadata, and LLM-assessed confidence. No extra calls. No separate infrastructure. The tradeoff is that it doesn't do LLM-based faithfulness judgment natively — but it accepts an external `faithfulnessScore` if you run one.
+
+> **Note:** This package does not judge answer *correctness*. It composes signals your system already produces into an explainable, auditable confidence scorecard. Use it alongside — not instead of — offline evaluation tools.
+
+---
+
+## Best for / Not for
+
+**Best for:**
+- RAG apps that need a live confidence indicator in a UI, API response, or log
+- Systems where you want to gate on answer quality before responding to users (e.g. route to human review if score < 40)
+- Domains with structured document hierarchies: legal, compliance, governance, HR policy, technical documentation
+- Pipelines that mix multiple retrieval methods (semantic + keyword + rerank) and need a single interpretable signal
+- Teams that need to explain AI answer confidence to non-technical stakeholders
+
+**Not for:**
+- Offline batch evaluation of a fine-tuned model's accuracy — use RAGAs or DeepEval
+- LLM-as-judge faithfulness scoring — those tools call a model to assess the answer; this package does not
+- Single-retrieval pipelines with no metadata — you'll get a score, but it won't be very differentiated
+- Replacing a proper eval suite — use this at runtime and eval tools offline; they complement each other
 
 ---
 
@@ -134,6 +155,51 @@ console.log(scorecard.labelColor); // 'green'
   }
 }
 ```
+
+---
+
+## From Your Retriever to Candidate[]
+
+`Candidate[]` maps directly to what most retrievers already return. Here's how to translate common retriever output shapes:
+
+**LangChain / LlamaIndex document chunks:**
+```typescript
+import { computeConfidence, type Candidate } from 'transparent-confidence';
+
+// retrievedDocs is what your retriever returns — adjust field names to match your stack
+const candidates: Candidate[] = retrievedDocs.map((doc) => ({
+  retrievalScores: {
+    semantic: doc.metadata.score ?? doc.score,         // cosine or dot-product score
+    keyword:  doc.metadata.bm25Score ?? 0,             // BM25 if your pipeline provides it
+  },
+  combinedScore:    doc.metadata.score ?? doc.score,   // final blended score used for ranking
+  documentId:       doc.metadata.source ?? doc.id,     // used for source diversity scoring
+  documentType:     doc.metadata.documentType,         // optional — used by Authority extension
+  lastUpdated:      doc.metadata.lastUpdated            // optional — used by Freshness extension
+                      ? new Date(doc.metadata.lastUpdated)
+                      : undefined,
+  extractionQuality: doc.metadata.extractionQuality,   // optional — PDF/OCR quality 0–1
+}));
+
+const scorecard = computeConfidence({
+  confidenceLevel: 'high',   // from your LLM's structured output
+  candidates,
+});
+```
+
+**pgvector / Supabase:**
+```typescript
+// rows from: SELECT *, 1 - (embedding <=> $query_embedding) AS score FROM documents
+const candidates: Candidate[] = rows.map((row) => ({
+  retrievalScores: { semantic: row.score },
+  combinedScore:   row.score,
+  documentId:      row.id,
+  documentType:    row.document_type,
+  lastUpdated:     row.updated_at ? new Date(row.updated_at) : undefined,
+}));
+```
+
+The minimum required per candidate is `retrievalScores` (any key name, any number of methods) and `combinedScore`. Everything else is optional and activates additional scoring sub-signals.
 
 ---
 

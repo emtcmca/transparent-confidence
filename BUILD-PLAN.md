@@ -856,3 +856,59 @@ These exact scenarios must pass at the Phase 4 gate and remain passing through P
 | 5 | Examples | ✅ Complete |
 | 6 | README + Documentation | ✅ Complete |
 | 7 | CI/CD + Publish | ✅ Complete |
+
+---
+
+## Version 0.2.0 — Planning
+
+> Source: post-launch review combining internal analysis and independent Codex audit.
+> None of these are started. Items marked ⚠️ are breaking changes — must ship together in a single semver bump.
+
+### Breaking changes (ship together)
+
+**B1 — Rename `confidenceLevel` → `supportLevel`** ⚠️
+- Current: `'high' | 'medium' | 'low'` reflects LLM self-assessment, which is uncalibrated
+- Rename signals its actual meaning: how well the source text *supports* the answer, whether assessed by the LLM, a faithfulness evaluator, or a citation check
+- Migration: add a deprecation shim in 0.1.x (`confidenceLevel` accepted but warns), remove in 0.2.0
+
+**B2 — Rename `corpusDocCount` → `corpusTypeCount`** ⚠️
+- Current name implies a raw document count; actual meaning is number of document *types* present
+- Also rename `ScoringConfig.corpus.expectedDocCount` → `expectedTypeCount` for consistency
+- Migration: same shim approach as B1
+
+### Non-breaking enhancements
+
+**E1 — Configurable retrieval score bands**
+- Problem: `combinedScore >= 0.80` is hardcoded; this threshold is meaningless without knowing the embedder, reranker, and normalization strategy. A score of 0.80 from OpenAI `text-embedding-3-small` is not the same as 0.80 from a BM25 scorer.
+- Solution: `config.retrieval?: { scoreBands?: { full: number; high: number; medium: number; low: number } }` — all optional, fall back to current defaults when not provided
+- No breaking change — purely additive config key
+
+**E2 — Structured sub-signal breakdown per dimension**
+- Problem: `DimensionScore.explanation` is a human-readable string — not parseable by dashboards or diff tools
+- Solution: Add optional `breakdown` field to `DimensionScore`:
+  ```typescript
+  breakdown?: Record<string, number>  // e.g. { agreement: 15, magnitude: 8, diversity: 3 }
+  ```
+- Additive field — no breaking change; existing code ignores it
+
+**E3 — Injectable `now` for freshness scoring**
+- Problem: `src/dimensions/freshness.ts` calls `Date.now()` internally — makes deterministic replay, historical eval runs, and snapshot tests impossible
+- Solution: `config.freshness.now?: Date` — when provided, used instead of `Date.now()`
+- Additive config field — no breaking change
+
+### README additions (can ship as patch in 0.1.x)
+
+**R1 — "From your retriever to Candidate[]" integration mapping** ✅ Done (0.1.1)
+**R2 — "Best for / Not for" section** ✅ Done (0.1.1)
+**R3 — Answer correctness disclaimer** ✅ Done (0.1.1)
+**R4 — Tagline update** ✅ Done (0.1.1)
+
+### 0.2.0 Checklist
+
+| Item | Type | Status |
+|---|---|---|
+| B1: rename `confidenceLevel` → `supportLevel` | Breaking | — |
+| B2: rename `corpusDocCount` → `corpusTypeCount` | Breaking | — |
+| E1: configurable retrieval score bands | Enhancement | — |
+| E2: structured sub-signal breakdown | Enhancement | — |
+| E3: injectable `now` for freshness | Enhancement | — |
