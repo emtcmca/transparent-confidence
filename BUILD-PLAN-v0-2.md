@@ -1671,13 +1671,13 @@ Expected: dimension tests pass individually, then full suite passes.
 
 ### Steps
 
-- [ ] Add active dimension weight resolution.
-- [ ] Add weighted total calculation.
-- [ ] Add algorithm/schema version metadata.
-- [ ] Add active dimensions metadata.
-- [ ] Roll up warnings and missing signals.
-- [ ] Add recommended action derivation.
-- [ ] Add action reason string.
+- [x] Add active dimension weight resolution.
+- [x] Add weighted total calculation.
+- [x] Add algorithm/schema version metadata.
+- [x] Add active dimensions metadata.
+- [x] Roll up warnings and missing signals.
+- [x] Add recommended action derivation.
+- [x] Add action reason string.
 
 ### Gate
 

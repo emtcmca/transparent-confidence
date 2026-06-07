@@ -414,10 +414,10 @@ export interface ConfidenceScorecard {
   labelColor: 'green' | 'amber' | 'orange' | 'red';
 
   /** Runtime action recommendation derived from score, tiers, and warnings. */
-  recommendedAction?: RecommendedAction;
+  recommendedAction: RecommendedAction;
 
   /** Human-readable reason for recommendedAction. */
-  actionReason?: string;
+  actionReason: string;
 
   /**
    * Tier 1: Answer Confidence.

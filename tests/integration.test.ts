@@ -30,6 +30,8 @@ describe('computeConfidence — API contracts', () => {
     expect(sc).toHaveProperty('total');
     expect(sc).toHaveProperty('label');
     expect(sc).toHaveProperty('labelColor');
+    expect(sc).toHaveProperty('recommendedAction');
+    expect(sc).toHaveProperty('actionReason');
     expect(sc).toHaveProperty('tier1');
     expect(sc).toHaveProperty('tier2');
     expect(sc).toHaveProperty('dimensions');
@@ -40,6 +42,17 @@ describe('computeConfidence — API contracts', () => {
     expect(sc.meta).toHaveProperty('rawTotal');
     expect(sc.meta).toHaveProperty('maxPossible');
     expect(sc.meta).toHaveProperty('activeExtensions');
+  });
+
+  test('recommendedAction is one of answer / review / abstain', () => {
+    const sc = computeConfidence(base);
+    expect(['answer', 'review', 'abstain']).toContain(sc.recommendedAction);
+  });
+
+  test('actionReason is a non-empty string', () => {
+    const sc = computeConfidence(base);
+    expect(typeof sc.actionReason).toBe('string');
+    expect(sc.actionReason.length).toBeGreaterThan(0);
   });
 
   test('total is an integer in range 0–100', () => {
@@ -213,6 +226,14 @@ describe('Scenario A — perfect answer, all extensions', () => {
     expect(sc.tier2).not.toBeNull();
     expect(sc.tier2?.label).toBe('Complete');
   });
+
+  test('recommendedAction = review (missing-conflict-signal in reviewOnWarnings, fires before answerAt)', () => {
+    // No hasConflict or conflictingCandidateCount → missing-conflict-signal warning.
+    // Rule 5 fires before rule 6 even though total=97 >= answerAt=65.
+    const sc = computeConfidence(inputs, config);
+    expect(sc.recommendedAction).toBe('review');
+    expect(sc.actionReason).toContain('missing-conflict-signal');
+  });
 });
 
 // ── Scenario B — documentsSilent ─────────────────────────────────────────────
@@ -250,6 +271,12 @@ describe('Scenario B — documentsSilent', () => {
     const sc = computeConfidence(inputs);
     expect(sc.dimensions.grounding.raw).toBe(0);
   });
+
+  test('recommendedAction = abstain (documentsSilent rule 1)', () => {
+    const sc = computeConfidence(inputs);
+    expect(sc.recommendedAction).toBe('abstain');
+    expect(sc.actionReason).toContain('documentsSilent');
+  });
 });
 
 // ── Scenario C — Low conf, thin corpus (Insufficient) ────────────────────────
@@ -285,6 +312,12 @@ describe('Scenario C — low confidence, thin corpus', () => {
     const sc = computeConfidence(inputs, config);
     expect(sc.meta.maxPossible).toBe(80);
   });
+
+  test('recommendedAction = abstain (total 24 < abstainBelow 40, rule 3)', () => {
+    const sc = computeConfidence(inputs, config);
+    expect(sc.recommendedAction).toBe('abstain');
+    expect(sc.actionReason).toContain('abstainBelow');
+  });
 });
 
 // ── Scenario D — Medium confidence, clean retrieval (Moderate) ───────────────
@@ -314,6 +347,13 @@ describe('Scenario D — medium confidence, clean retrieval', () => {
   test('label = Moderate', () => {
     const sc = computeConfidence(inputs);
     expect(sc.label).toBe('Moderate');
+  });
+
+  test('recommendedAction = review (missing-conflict-signal in reviewOnWarnings, rule 5)', () => {
+    // total=71 >= answerAt=65, but rule 5 fires first due to missing-conflict-signal.
+    const sc = computeConfidence(inputs);
+    expect(sc.recommendedAction).toBe('review');
+    expect(sc.actionReason).toContain('missing-conflict-signal');
   });
 });
 
@@ -354,6 +394,13 @@ describe('Scenario E — high conf, multi-hop, low faithfulness', () => {
   test('grounding.raw = 6 (ceiling + faithfulness penalty applied)', () => {
     const sc = computeConfidence(inputs);
     expect(sc.dimensions.grounding.raw).toBe(6);
+  });
+
+  test('recommendedAction = review (missing-conflict-signal in reviewOnWarnings, rule 5)', () => {
+    // total=60 ≥ reviewAt=40 but < answerAt=65; rule 5 fires before rule 6/7.
+    const sc = computeConfidence(inputs);
+    expect(sc.recommendedAction).toBe('review');
+    expect(sc.actionReason).toContain('missing-conflict-signal');
   });
 });
 
