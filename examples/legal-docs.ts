@@ -1,12 +1,19 @@
 /**
- * Example: Legal Docs — Authority + Corpus extensions, HOA governance scenario
+ * Example: Legal Docs — Authority + Corpus extensions, HOA governance
  *
  * Scenario: An HOA board member asks about pet restriction rules. The system
  * retrieves from CC&Rs (primary authority) and Rules & Regulations (secondary).
- * Corpus is 4 of 5 expected document types loaded — one type missing.
+ * Corpus is 4 of 5 expected document types loaded. No explicit conflict signal
+ * is provided — this generates a missing-conflict-signal warning and causes
+ * the recommended action to be 'review' even though the score is strong.
  *
- * Expected label:  Moderate
- * Expected range:  74–82
+ * Expected label:           Moderate
+ * Expected total:           ~68–78
+ * Expected recommendedAction: review (missing-conflict-signal in reviewOnWarnings)
+ *
+ * Key: the default policy includes missing-conflict-signal in reviewOnWarnings.
+ * To get 'answer', either pass hasConflict: false or remove the warning from
+ * the policy: actionPolicy: { reviewOnWarnings: [] }
  */
 
 import { computeConfidence } from '../src/index.js';
@@ -17,6 +24,7 @@ const scorecard = computeConfidence(
     supportLevel: 'medium',
     citationCount: 2,
     queryComplexity: 'inferential', // requires reading across multiple sections
+    // hasConflict intentionally omitted — generates missing-conflict-signal warning
 
     // Retrieved candidates from two governing documents
     candidates: [
@@ -63,13 +71,14 @@ const scorecard = computeConfidence(
 );
 
 console.log('=== Legal Docs Scorecard (HOA Governance) ===');
-console.log(`Total:      ${scorecard.total} / 100`);
-console.log(`Label:      ${scorecard.label} (${scorecard.labelColor})`);
+console.log(`Total:             ${scorecard.total} / 100`);
+console.log(`Label:             ${scorecard.label} (${scorecard.labelColor})`);
+console.log(`Recommended:       ${scorecard.recommendedAction} — ${scorecard.actionReason}`);
 console.log(
-  `Tier 1:     ${scorecard.tier1?.score} — ${scorecard.tier1?.label}  (Answer Confidence)`,
+  `Tier 1:            ${scorecard.tier1?.score} — ${scorecard.tier1?.label}  (Answer Confidence)`,
 );
 console.log(
-  `Tier 2:     ${scorecard.tier2?.score} — ${scorecard.tier2?.label}  (System Readiness)`,
+  `Tier 2:            ${scorecard.tier2?.score} — ${scorecard.tier2?.label}  (System Readiness)`,
 );
 console.log('');
 console.log('Dimensions:');
@@ -89,5 +98,14 @@ console.log(
   `  Corpus:      ${scorecard.dimensions.corpus?.raw} / ${scorecard.dimensions.corpus?.max}  — ${scorecard.dimensions.corpus?.explanation}`,
 );
 console.log('');
-console.log('Active extensions:', scorecard.meta.activeExtensions);
-console.log('Meta:', scorecard.meta);
+console.log('Warnings:');
+if (scorecard.meta.warnings.length === 0) {
+  console.log('  none');
+} else {
+  for (const w of scorecard.meta.warnings) {
+    console.log(`  [${w.severity}] ${w.code}: ${w.message}`);
+  }
+}
+console.log('');
+console.log('→ To eliminate the review recommendation, pass hasConflict: false or set');
+console.log('  actionPolicy: { reviewOnWarnings: [] } in the config.');

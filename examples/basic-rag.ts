@@ -3,10 +3,14 @@
  *
  * Scenario: A knowledge base chatbot answers a straightforward factual question.
  * The LLM reports high confidence, three strong candidates retrieved via two
- * methods each, consistent scores, no conflicts.
+ * methods each, consistent scores, explicit no-conflict signal.
  *
- * Expected label:  Strong
- * Expected range:  85–100
+ * Expected label:           Strong
+ * Expected total:           100
+ * Expected recommendedAction: answer
+ *
+ * Key: passing hasConflict: false explicitly removes the missing-conflict-signal
+ * warning, which would otherwise push recommendedAction to 'review'.
  */
 
 import { computeConfidence } from '../src/index.js';
@@ -14,6 +18,7 @@ import { computeConfidence } from '../src/index.js';
 const scorecard = computeConfidence({
   // LLM-assessed signals
   supportLevel: 'high',
+  hasConflict: false, // explicit — prevents missing-conflict-signal warning
   citationCount: 3,
 
   // Retrieved candidates — three solid hits from two retrieval methods each
@@ -37,11 +42,12 @@ const scorecard = computeConfidence({
 });
 
 console.log('=== Basic RAG Scorecard ===');
-console.log(`Total:      ${scorecard.total} / 100`);
-console.log(`Label:      ${scorecard.label} (${scorecard.labelColor})`);
-console.log(`Tier 1:     ${scorecard.tier1?.score} — ${scorecard.tier1?.label}`);
+console.log(`Total:             ${scorecard.total} / 100`);
+console.log(`Label:             ${scorecard.label} (${scorecard.labelColor})`);
+console.log(`Recommended:       ${scorecard.recommendedAction} — ${scorecard.actionReason}`);
+console.log(`Tier 1:            ${scorecard.tier1?.score} — ${scorecard.tier1?.label}`);
 console.log(
-  `Tier 2:     ${scorecard.tier2 === null ? 'n/a (no extensions)' : scorecard.tier2.label}`,
+  `Tier 2:            ${scorecard.tier2 === null ? 'n/a (no extensions)' : scorecard.tier2.label}`,
 );
 console.log('');
 console.log('Dimensions:');
@@ -55,4 +61,13 @@ console.log(
   `  Consistency: ${scorecard.dimensions.consistency.raw} / ${scorecard.dimensions.consistency.max}  — ${scorecard.dimensions.consistency.explanation}`,
 );
 console.log('');
-console.log('Meta:', scorecard.meta);
+console.log('Meta:');
+console.log(`  algorithmVersion: ${scorecard.meta.algorithmVersion}`);
+console.log(`  rawTotal:         ${scorecard.meta.rawTotal}`);
+console.log(`  maxPossible:      ${scorecard.meta.maxPossible}`);
+console.log(
+  `  warnings:         ${scorecard.meta.warnings.length === 0 ? 'none' : scorecard.meta.warnings.map((w) => w.code).join(', ')}`,
+);
+console.log(
+  `  missingSignals:   ${scorecard.meta.missingSignals.length === 0 ? 'none' : scorecard.meta.missingSignals.join(', ')}`,
+);

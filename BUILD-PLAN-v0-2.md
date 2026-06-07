@@ -1708,31 +1708,31 @@ Expected: targeted tests pass first, then full suite passes.
 
 ### Required README Sections
 
-- What v0.2 score means.
-- What v0.2 score does not mean.
-- Quick start with `supportLevel`.
-- Migration from v0.1 to v0.2.
-- Answer relevance section.
-- Retrieval tuning section.
-- Retrieval tuning section warns that if `combinedScore` is not normalized to `[0, 1]`, users must configure `scoreBands` to match their score distribution before deploying.
-- Retrieval tuning section explains that BM25, ColBERT, reranker, and cross-encoder scores may not be comparable without caller-side normalization or tuned bands.
-- Warning and missing signal section.
-- Recommended action section.
-- Machine-readable breakdown section.
-- Machine-readable breakdown section states `breakdown.raw === DimensionScore.raw` for every dimension.
-- Observability logging recipe.
-- Weighting section includes the default-weight proof: `(raw / max) * max = raw`.
-- Retrieval diversity section states that diversity counts unique `documentId` values, while `contentHash` is diagnostic-only in v0.2.
-- Updated API reference.
-- Updated algorithm tables.
+- [x] What v0.2 score means.
+- [x] What v0.2 score does not mean.
+- [x] Quick start with `supportLevel`.
+- [x] Migration from v0.1 to v0.2.
+- [x] Answer relevance section.
+- [x] Retrieval tuning section.
+- [x] Retrieval tuning section warns that if `combinedScore` is not normalized to `[0, 1]`, users must configure `scoreBands` to match their score distribution before deploying.
+- [x] Retrieval tuning section explains that BM25, ColBERT, reranker, and cross-encoder scores may not be comparable without caller-side normalization or tuned bands.
+- [x] Warning and missing signal section.
+- [x] Recommended action section.
+- [x] Machine-readable breakdown section.
+- [x] Machine-readable breakdown section states `breakdown.raw === DimensionScore.raw` for every dimension.
+- [x] Observability logging recipe.
+- [x] Weighting section includes the default-weight proof: `(raw / max) * max = raw`.
+- [x] Retrieval diversity section states that diversity counts unique `documentId` values, while `contentHash` is diagnostic-only in v0.2.
+- [x] Updated API reference.
+- [x] Updated algorithm tables.
 
 ### Required Examples
 
-- Basic RAG with explicit `hasConflict: false`.
-- Vector-only retrieval using `minConfirmedMethods: 1`.
-- Hybrid retrieval with method thresholds.
-- Full pipeline with relevance, warnings, action policy, and breakdown.
-- Runtime gating example:
+- [x] Basic RAG with explicit `hasConflict: false`.
+- [x] Vector-only retrieval using `minConfirmedMethods: 1`.
+- [x] Hybrid retrieval with method thresholds. *(covered in legal-docs + README)*
+- [x] Full pipeline with relevance, warnings, action policy, and breakdown.
+- [x] Runtime gating example:
 
 ```typescript
 if (scorecard.recommendedAction === 'abstain') {
