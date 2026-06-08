@@ -215,6 +215,117 @@ describe('scoreRetrieval - source diversity sub-signal', () => {
     expect(result.breakdown?.components.diversity).toBe(1);
     expect(result.breakdown?.diagnostics?.duplicateContentHashCount).toBe(1);
   });
+
+  test('duplicate content penalty reduces retrieval raw when enabled', () => {
+    const candidates = [
+      { ...confirmed(0.9, 'doc-a'), contentHash: 'same' },
+      { ...confirmed(0.88, 'doc-a'), contentHash: 'same' },
+      { ...confirmed(0.86, 'doc-b'), contentHash: 'different' },
+    ];
+
+    const diagnostic = scoreRetrieval({ ...base, candidates });
+    const penalized = scoreRetrieval(
+      { ...base, candidates },
+      { retrieval: { duplicateContent: { mode: 'penalize' } } },
+    );
+
+    expect(diagnostic.raw).toBe(25);
+    expect(penalized.raw).toBe(24);
+    expect(penalized.breakdown?.adjustments.duplicateContentPenalty).toBe(-1);
+    expect(penalized.warnings).toContainEqual(
+      expect.objectContaining({ code: 'duplicate-content' }),
+    );
+  });
+
+  test('duplicate content penalty is capped', () => {
+    const candidates = [
+      { ...confirmed(0.95, 'doc-a'), contentHash: 'same' },
+      { ...confirmed(0.93, 'doc-b'), contentHash: 'same' },
+      { ...confirmed(0.91, 'doc-c'), contentHash: 'same' },
+      { ...confirmed(0.89, 'doc-d'), contentHash: 'same' },
+      { ...confirmed(0.87, 'doc-e'), contentHash: 'same' },
+    ];
+
+    const result = scoreRetrieval(
+      { ...base, candidates },
+      {
+        retrieval: {
+          duplicateContent: {
+            mode: 'penalize',
+            penaltyPerDuplicate: 2,
+            maxPenalty: 3,
+          },
+        },
+      },
+    );
+
+    expect(result.breakdown?.diagnostics?.duplicateContentHashCount).toBe(4);
+    expect(result.breakdown?.adjustments.duplicateContentPenalty).toBe(-3);
+    expect(result.raw).toBe(25);
+  });
+});
+
+describe('scoreRetrieval - rank diagnostics and penalty', () => {
+  test('rank signal is diagnostic-only by default', () => {
+    const candidates = [
+      { ...confirmed(0.9, 'doc-a'), rank: 1 },
+      { ...confirmed(0.88, 'doc-b'), rank: 12 },
+      confirmed(0.86, 'doc-c'),
+    ];
+
+    const result = scoreRetrieval({ ...base, candidates });
+
+    expect(result.raw).toBe(25);
+    expect(result.breakdown?.diagnostics?.rankedCandidateCount).toBe(2);
+    expect(result.breakdown?.diagnostics?.missingRankCount).toBe(1);
+    expect(result.breakdown?.adjustments.rankPenalty).toBeUndefined();
+  });
+
+  test('rank penalty reduces retrieval raw when enabled', () => {
+    const candidates = [
+      { ...confirmed(0.9, 'doc-a'), rank: 1 },
+      { ...confirmed(0.88, 'doc-b'), rank: 12 },
+      { ...confirmed(0.86, 'doc-c'), rank: 14 },
+    ];
+
+    const result = scoreRetrieval(
+      { ...base, candidates },
+      {
+        retrieval: {
+          rankPenalty: {
+            mode: 'penalize',
+            afterRank: 10,
+            penaltyPerRank: 0.5,
+            maxPenalty: 3,
+          },
+        },
+      },
+    );
+
+    expect(result.breakdown?.adjustments.rankPenalty).toBe(-3);
+    expect(result.raw).toBe(24);
+  });
+
+  test('missing ranks warn when rank penalty is enabled', () => {
+    const result = scoreRetrieval(
+      {
+        ...base,
+        candidates: [{ ...confirmed(0.9, 'doc-a'), rank: 1 }, confirmed(0.88, 'doc-b')],
+      },
+      {
+        retrieval: {
+          rankPenalty: {
+            mode: 'penalize',
+          },
+        },
+      },
+    );
+
+    expect(result.breakdown?.diagnostics?.missingRankCount).toBe(1);
+    expect(result.warnings).toContainEqual(
+      expect.objectContaining({ code: 'rank-signal-missing' }),
+    );
+  });
 });
 
 describe('scoreRetrieval - section breadth sub-signal', () => {

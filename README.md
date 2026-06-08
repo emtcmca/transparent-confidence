@@ -5,12 +5,16 @@
 [![npm version](https://img.shields.io/npm/v/transparent-confidence.svg)](https://www.npmjs.com/package/transparent-confidence)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![CI](https://github.com/emtcmca/transparent-confidence/actions/workflows/ci.yml/badge.svg)](https://github.com/emtcmca/transparent-confidence/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-350%20passing-brightgreen.svg)](https://github.com/emtcmca/transparent-confidence/actions)
+[![Tests](https://img.shields.io/badge/tests-408%20passing-brightgreen.svg)](https://github.com/emtcmca/transparent-confidence/actions)
 [![Zero dependencies](https://img.shields.io/badge/dependencies-0-brightgreen.svg)](package.json)
 
 > **Transparent Confidence™** is a scoring methodology that makes RAG answer quality auditable — every point on the 0–100 scale has an explicit reason attached to it.
 
 ---
+
+`transparent-confidence` v0.3 is a deterministic, auditable runtime confidence layer for RAG systems. It turns retrieval, grounding, evaluator, citation, corpus, freshness, authority, and index integrity signals into a versioned scorecard, action recommendation, and calibration-ready log record.
+
+The score is not a probability of correctness unless you calibrate it against your own labeled outcomes. The package does not retrieve documents, call an LLM, or verify citations by itself.
 
 ## Contents
 
@@ -23,8 +27,13 @@
 - [From Your Retriever to Candidate\[\]](#from-your-retriever-to-candidate)
 - [Recommended Action](#recommended-action)
 - [Warnings and Missing Signals](#warnings-and-missing-signals)
+- [v0.3 Production Workflows](#v03-production-workflows)
 - [Algorithm](#algorithm)
 - [Retrieval Tuning](#retrieval-tuning)
+- [Signal Policy](#signal-policy)
+- [Calibration Utilities](#calibration-utilities)
+- [Evaluator Signal Bridge](#evaluator-signal-bridge)
+- [Index Integrity](#index-integrity)
 - [Answer Relevance](#answer-relevance)
 - [Dimension Weights](#dimension-weights)
 - [Machine-readable Breakdowns](#machine-readable-breakdowns)
@@ -33,6 +42,7 @@
 - [Extensions](#extensions)
 - [Enhanced Signals](#enhanced-signals)
 - [Examples](#examples)
+- [Upgrading from 0.2.x to 0.3.0](#upgrading-from-02x-to-030)
 - [Upgrading from 0.1.x to 0.2.0](#upgrading-from-01x-to-020)
 - [Roadmap](#roadmap)
 - [Contributing](#contributing)
@@ -163,8 +173,8 @@ console.log(scorecard.actionReason);      // 'Score 100 meets answerAt threshold
     "consistency": { "raw": 10, "max": 10, "normalized": 100, "explanation": "..." }
   },
   "meta": {
-    "algorithmVersion": "0.2.0",
-    "schemaVersion": "0.2",
+    "algorithmVersion": "0.3.0",
+    "schemaVersion": "0.3",
     "rawTotal": 65,
     "maxPossible": 65,
     "activeExtensions": [],
@@ -321,9 +331,110 @@ computeConfidence(inputs, { ...config, validation: 'strict' });
 
 ---
 
+## v0.3 Production Workflows
+
+v0.3 adds production hardening around the deterministic scorer without adding runtime dependencies or model calls.
+
+### Production preset
+
+```typescript
+const scorecard = computeConfidence(inputs, {
+  preset: 'production-v0.3',
+});
+```
+
+`production-v0.3` requires:
+
+- `answerRelevanceScore`
+- `hasConflict` or `conflictingCandidateCount`
+- `faithfulnessScore` or `claimSupport`
+
+When these are missing, the scorecard includes `required-signal-missing` warnings and the action is forced to `review`.
+
+Use `preset: 'legacy-v0.2'` when migrating code that expects the closest v0.2 action behavior.
+
+If you pass `signalPolicy` with `preset: 'production-v0.3'`, caller policy is merged with the production preset. Custom policy adds requirements or gates; it does not silently remove the production evaluator/relevance/conflict requirements.
+
+### Signal policy
+
+```typescript
+computeConfidence(inputs, {
+  signalPolicy: {
+    require: ['answerRelevanceScore', 'conflictSignal', 'citationCoverageScore'],
+    reviewWhenMissing: ['answerRelevanceScore', 'conflictSignal'],
+    abstainWhenMissing: ['citationCoverageScore'],
+    minCitationCoverageScore: 0.75,
+    maxInvalidCitationCount: 0,
+  },
+});
+```
+
+Signal policy lets you make missing evaluator, citation, conflict, corpus, authority, rank, content-hash, or index-health signals machine-readable and actionable.
+
+### Calibration utilities
+
+```typescript
+import { analyzeCalibration } from 'transparent-confidence';
+
+const report = analyzeCalibration(samples, {
+  minSamplesPerBand: 30,
+  targetPrecisionForAnswer: 0.9,
+  targetRecallForAbstain: 0.8,
+});
+```
+
+Calibration returns score bands, empirical positive rates, action summaries, recommended thresholds, and low-sample warnings. `targetPrecisionForAnswer` tunes `answerAt`; `targetRecallForAbstain` tunes `abstainBelow` and `reviewAt`. It does not change the scoring algorithm.
+
+### Evaluator signal bridge
+
+```typescript
+import { fromRagasLike, mergeEvaluationSignals } from 'transparent-confidence';
+
+const signals = fromRagasLike(ragasResult);
+const { inputs: enrichedInputs } = mergeEvaluationSignals(inputs, signals);
+const scorecard = computeConfidence(enrichedInputs);
+```
+
+The bridge accepts plain objects from RAGAS-like, DeepEval-like, TruLens-like, or custom judge outputs. It imports no evaluator SDKs.
+
+### Retrieval duplicate and rank diagnostics
+
+`contentHash` and `rank` are diagnostic-only by default. To make them affect the retrieval raw score:
+
+```typescript
+computeConfidence(inputs, {
+  retrieval: {
+    duplicateContent: { mode: 'penalize' },
+    rankPenalty: { mode: 'penalize' },
+  },
+});
+```
+
+### Index integrity
+
+```typescript
+const scorecard = computeConfidence(
+  {
+    ...inputs,
+    indexIntegrity: {
+      expectedEmbeddingModelVersion: 'text-embedding-3-large@2026-01',
+      actualEmbeddingModelVersion: 'text-embedding-3-large@2026-01',
+      sourceVersionMatchRatio: 0.998,
+      staleIndexedDocumentRatio: 0.004,
+      failedIngestionCount: 0,
+      aclFilterConfirmed: true,
+      deletedSourceLeakageCount: 0,
+    },
+  },
+  { indexIntegrity: {} },
+);
+```
+
+Index integrity is an opt-in Tier 2 dimension. It is inactive unless `config.indexIntegrity` is present.
+
 ## Algorithm
 
-The score is built from three core dimensions (always active) and up to four optional extensions. Raw points from all active dimensions are summed and normalized to 0–100.
+The score is built from three core dimensions (always active) and optional dimensions/extensions. Raw points from all active dimensions are summed and normalized to 0–100.
 
 ```
 normalizedScore = round((rawTotal / maxPossible) × 100)
@@ -460,7 +571,7 @@ Average `combinedScore` of top `topK` (default 3) candidates. If `extractionQual
 
 #### Sub-signal C — Source Diversity + Section Breadth (0–5)
 
-Source diversity counts unique `documentId` values. `contentHash` is diagnostic-only in v0.2; duplicate content hashes do not reduce diversity points by default.
+Source diversity counts unique `documentId` values. In v0.3, `contentHash` is diagnostic-only by default; duplicate content hashes reduce retrieval raw score only when `retrieval.duplicateContent.mode = 'penalize'`.
 
 | Unique `documentId` values | Points |
 |---|---|
@@ -478,7 +589,7 @@ Source diversity counts unique `documentId` values. `contentHash` is diagnostic-
 
 ### Dimension 3 — Evidence Consistency (max 10 pts)
 
-Scores retrieval score stability plus explicit evidence conflict status. v0.2 treats a missing conflict signal as a conservative neutral — not as implicit agreement.
+Scores retrieval score stability plus explicit evidence conflict status. A missing conflict signal is treated as a conservative neutral, not as implicit agreement.
 
 **Required inputs:** `candidates[].combinedScore`
 
@@ -510,7 +621,7 @@ Population standard deviation of `combinedScore` across all candidates:
 | `conflictingCandidateCount ≥ 2` | 0 |
 | `hasConflict = true` (no count given) | 0 |
 
-> **v0.2 change:** tight retrieval scores are not treated as proof of semantic agreement. An explicit `hasConflict: false` or `conflictingCandidateCount: 0` earns the full conflict-signal points. Omitting both generates a warning and a conservative neutral score.
+> Tight retrieval scores are not treated as proof of semantic agreement. An explicit `hasConflict: false` or `conflictingCandidateCount: 0` earns the full conflict-signal points. Omitting both generates a warning and a conservative neutral score.
 
 ---
 
@@ -807,6 +918,8 @@ const s2 = scorer.compute(inputs2);
 | `missingRelevantType` | `boolean` | — | True when a known relevant document type is not in the corpus |
 | `missingTypes` | `string[]` | — | Named document types known to be missing for this query |
 
+| `indexIntegrity` | `IndexIntegrityInputs` | optional | Optional index operational health signals; used only when `config.indexIntegrity` is active |
+
 ### `Candidate`
 
 | Field | Type | Required | Description |
@@ -819,8 +932,10 @@ const s2 = scorer.compute(inputs2);
 | `isAmendment` | `boolean` | — | True if this candidate comes from an amendment to the base document |
 | `extractionQuality` | `number` | — | 0–1 OCR or extraction quality multiplier applied to `combinedScore` |
 | `lastUpdated` | `Date` | — | Document last-updated date; used by Freshness extension |
-| `contentHash` | `string` | — | Stable content hash for duplicate detection (diagnostic-only in v0.2) |
+| `contentHash` | `string` | — | Stable content hash for duplicate detection; diagnostic by default, penalized only when configured |
 | `rank` | `number` | — | 1-based final retrieval/rerank position from your pipeline |
+
+`contentHash` is diagnostic-only by default in v0.3. Configure `retrieval.duplicateContent.mode = 'penalize'` when duplicate chunks should reduce retrieval raw score.
 
 ### `ScoringConfig`
 
@@ -829,12 +944,16 @@ All fields optional. Passing a key activates that extension.
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `retrieval` | `RetrievalConfig` | — | Retrieval scoring overrides |
+| `preset` | `'legacy-v0.2' \| 'balanced-v0.3' \| 'production-v0.3'` | `'balanced-v0.3'` | Compatibility or production-hardening preset |
+| `signalPolicy` | `SignalPolicy` | preset-derived | Required-signal and citation-quality gating policy |
 | `retrieval.scoreBands` | `Partial<{ full, high, medium, low }>` | `0.80/0.65/0.50/0.35` | Score magnitude bands |
 | `retrieval.minConfirmedMethods` | `number` | `2` | Methods needed to confirm a candidate |
 | `retrieval.defaultMethodThreshold` | `number` | `0` | Score threshold for method confirmation |
 | `retrieval.methodThresholds` | `Record<string, number>` | `{}` | Per-method score thresholds |
 | `retrieval.topK` | `number` | `3` | Candidates used for magnitude scoring |
 | `relevance` | `RelevanceConfig` | — | Activates Answer Relevance dimension |
+| `retrieval.duplicateContent` | `DuplicateContentConfig` | diagnostic | Duplicate content-hash diagnostics or opt-in penalty |
+| `retrieval.rankPenalty` | `RankPenaltyConfig` | diagnostic | Candidate rank diagnostics or opt-in late-rank penalty |
 | `relevance.required` | `boolean` | `false` | If true, missing score generates a warning and scores 0 |
 | `relevance.scoreBands` | `Partial<{ full, high, medium, low }>` | `0.90/0.75/0.60/0.40` | Relevance score bands |
 | `authority` | `AuthorityConfig` | — | Activates Source Authority extension |
@@ -852,6 +971,7 @@ All fields optional. Passing a key activates that extension.
 | `freshness.aggregation` | `'median' \| 'oldest' \| 'newest'` | `'median'` | Which document age to score |
 | `weights` | `Partial<Record<DimensionName, number>>` | — | Custom max-point weights per dimension |
 | `actionPolicy` | `ActionPolicy` | — | Custom thresholds and warning lists |
+| `indexIntegrity` | `IndexIntegrityConfig` | optional | Activates Index Integrity Tier 2 extension |
 | `validation` | `'warn' \| 'strict'` | `'warn'` | Strict mode throws on input issues |
 
 ### `ConfidenceScorecard`
@@ -864,7 +984,7 @@ All fields optional. Passing a key activates that extension.
 | `recommendedAction` | `'answer' \| 'review' \| 'abstain'` | Runtime action recommendation |
 | `actionReason` | `string` | First rule that decided the action |
 | `tier1` | `Tier1Result \| null` | Answer Confidence tier (Grounding + Retrieval + Consistency + Relevance + Authority) |
-| `tier2` | `Tier2Result \| null` | System Readiness tier (Corpus + Freshness); null when neither extension active |
+| `tier2` | `Tier2Result \| null` | System Readiness tier (Corpus + Freshness + Index Integrity); null when none are active |
 | `dimensions.grounding` | `DimensionScore` | Always present |
 | `dimensions.retrieval` | `DimensionScore` | Always present |
 | `dimensions.consistency` | `DimensionScore` | Always present |
@@ -872,8 +992,9 @@ All fields optional. Passing a key activates that extension.
 | `dimensions.authority` | `DimensionScore \| undefined` | Present only when Authority extension active |
 | `dimensions.corpus` | `DimensionScore \| undefined` | Present only when Corpus extension active |
 | `dimensions.freshness` | `DimensionScore \| undefined` | Present only when Freshness extension active |
-| `meta.algorithmVersion` | `string` | Algorithm version, e.g. `'0.2.0'` |
-| `meta.schemaVersion` | `string` | Output schema version, e.g. `'0.2'` |
+| `dimensions.indexIntegrity` | `DimensionScore \| undefined` | Present only when Index Integrity extension active |
+| `meta.algorithmVersion` | `string` | Algorithm version, e.g. `'0.3.0'` |
+| `meta.schemaVersion` | `string` | Output schema version, e.g. `'0.3'` |
 | `meta.rawTotal` | `number` | Sum of weighted raw points before normalization |
 | `meta.maxPossible` | `number` | Maximum achievable weighted points given active dimensions |
 | `meta.activeExtensions` | `string[]` | Optional extensions active for this call |
@@ -918,7 +1039,7 @@ const scorecard = computeConfidence(inputs, {
 
 Each candidate is classified by matching `documentType` against tier `keywords` (case-insensitive). `authorityRank` on the candidate overrides keyword matching if provided.
 
-**v0.2 default — weighted aggregation:** Authority is scored as a weighted average across the top-K candidates, where each candidate's weight is proportional to its `combinedScore`. This rewards answers supported by many strong-scoring authoritative sources, not just the single highest-authority hit.
+**Default weighted aggregation:** Authority is scored as a weighted average across the top-K candidates, where each candidate's weight is proportional to its `combinedScore`. This rewards answers supported by many strong-scoring authoritative sources, not just the single highest-authority hit.
 
 **v0.1 compat — best source wins:** `aggregation: 'best'` reproduces the original min-rank behavior.
 
@@ -977,6 +1098,30 @@ const scorecard = computeConfidence(inputs, {
 - `'newest'` — score the newest candidate's age (useful when any current source is sufficient)
 
 All three config fields are optional; defaults are `maxAgeForFullScore: 90`, `penaltyPerMonth: 1.5`, `hardCutoffAge: 730`. Provide `lastUpdated: Date` on each candidate.
+
+### Index Integrity
+
+Scores index operational readiness signals that corpus completeness and document freshness do not cover.
+
+```typescript
+const scorecard = computeConfidence(
+  {
+    ...inputs,
+    indexIntegrity: {
+      expectedEmbeddingModelVersion: 'text-embedding-3-large@2026-01',
+      actualEmbeddingModelVersion: 'text-embedding-3-large@2026-01',
+      sourceVersionMatchRatio: 0.998,
+      staleIndexedDocumentRatio: 0.004,
+      failedIngestionCount: 0,
+      aclFilterConfirmed: true,
+      deletedSourceLeakageCount: 0,
+    },
+  },
+  { indexIntegrity: {} },
+);
+```
+
+Index Integrity is opt-in. It contributes 15 max points to Tier 2 only when `config.indexIntegrity` is present.
 
 ---
 
@@ -1041,13 +1186,34 @@ Working examples are in the [`examples/`](examples/) directory. Each file includ
 | [`basic-rag.ts`](examples/basic-rag.ts) | Core dimensions, explicit no-conflict | 100 | `answer` |
 | [`knowledge-base.ts`](examples/knowledge-base.ts) | Vector-only retrieval + Freshness | ~78 | `answer` |
 | [`legal-docs.ts`](examples/legal-docs.ts) | Authority + Corpus, shows warning-driven review | ~74 | `review` |
-| [`full-pipeline.ts`](examples/full-pipeline.ts) | All 7 dimensions, custom action policy | ~90 | `answer` |
+| [`full-pipeline.ts`](examples/full-pipeline.ts) | Full pipeline with authority, corpus, and freshness | ~90 | `answer` |
+| [`production-gating.ts`](examples/production-gating.ts) | `production-v0.3` required-signal gating | 100 | `review` |
+| [`calibration-analysis.ts`](examples/calibration-analysis.ts) | Offline calibration report and policy recommendation | 100 | `answer` |
+| [`evaluator-bridge.ts`](examples/evaluator-bridge.ts) | RAGAS-like evaluator output merged into scoring inputs | ~95 | `answer` |
+| [`retrieval-tuning.ts`](examples/retrieval-tuning.ts) | Duplicate and rank diagnostics with opt-in penalties | ~97 | `answer` |
+| [`index-integrity.ts`](examples/index-integrity.ts) | Opt-in Tier 2 index integrity extension | ~95 | `answer` |
 
 Run any example:
 
 ```bash
 npx tsx examples/basic-rag.ts
 ```
+
+---
+
+## Upgrading from 0.2.x to 0.3.0
+
+v0.3.0 is mostly additive. See [`docs/migration-v0-3.md`](docs/migration-v0-3.md) for the full guide.
+
+Key decisions:
+
+- Choose `preset: 'legacy-v0.2'`, `balanced-v0.3`, or `production-v0.3`.
+- For production gating, provide `answerRelevanceScore`, a conflict signal, and either `faithfulnessScore` or `claimSupport`.
+- Add `contentHash` and `rank` when you want retrieval duplicate/rank diagnostics.
+- Add `indexIntegrity` inputs only when you opt into `config.indexIntegrity`.
+- Use `analyzeCalibration` before treating score thresholds as local reliability thresholds.
+
+Algorithm reference: [`docs/algorithm-v0-3.md`](docs/algorithm-v0-3.md).
 
 ---
 
@@ -1093,7 +1259,6 @@ computeConfidence({ supportLevel: 'high', corpusTypeCount: 4, candidates }, {
 
 Planned for future versions — none of these are started or committed:
 
-- **Calibration API** — supply historical score/outcome pairs to tune dimension weights for your domain
 - **Batch scoring** — `computeAll(inputs[])` returning sorted scorecards for comparison
 - **Score explanation renderer** — format `DimensionScore.explanation` fields into structured Markdown or HTML for display
 - **Streaming scorecard** — emit partial scorecard as dimensions complete, useful for long-running pipelines

@@ -187,6 +187,12 @@ export interface ScoringInputs {
 
   /** Optional names of document types known to be missing for this query. */
   missingTypes?: string[];
+
+  /**
+   * Optional index operational health signals.
+   * Used only when config.indexIntegrity is active.
+   */
+  indexIntegrity?: IndexIntegrityInputs;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -246,6 +252,8 @@ export interface RetrievalConfig {
   minConfirmedMethods?: number;
   topK?: number;
   minTopScoreGapForClearWinner?: number;
+  duplicateContent?: DuplicateContentConfig;
+  rankPenalty?: RankPenaltyConfig;
 }
 
 export interface RelevanceConfig {
@@ -264,6 +272,36 @@ export interface CorpusConfig {
   expectedTypes?: string[];
 }
 
+export interface DuplicateContentConfig {
+  mode?: 'diagnostic' | 'penalize';
+  penaltyPerDuplicate?: number;
+  maxPenalty?: number;
+}
+
+export interface RankPenaltyConfig {
+  mode?: 'diagnostic' | 'penalize';
+  afterRank?: number;
+  penaltyPerRank?: number;
+  maxPenalty?: number;
+}
+
+export interface IndexIntegrityInputs {
+  expectedEmbeddingModelVersion?: string;
+  actualEmbeddingModelVersion?: string;
+  sourceVersionMatchRatio?: number;
+  staleIndexedDocumentRatio?: number;
+  failedIngestionCount?: number;
+  aclFilterConfirmed?: boolean;
+  deletedSourceLeakageCount?: number;
+}
+
+export interface IndexIntegrityConfig {
+  maxFailedIngestionsForFullScore?: number;
+  staleRatioWarnAt?: number;
+  staleRatioZeroAt?: number;
+  requireAclFilterConfirmation?: boolean;
+}
+
 export type DimensionName =
   | 'grounding'
   | 'retrieval'
@@ -271,7 +309,8 @@ export type DimensionName =
   | 'relevance'
   | 'authority'
   | 'corpus'
-  | 'freshness';
+  | 'freshness'
+  | 'indexIntegrity';
 
 export type RecommendedAction = 'answer' | 'review' | 'abstain';
 
@@ -291,7 +330,17 @@ export type ConfidenceWarningCode =
   | 'low-citation-coverage'
   | 'invalid-citations'
   | 'ambiguous-top-results'
-  | 'input-out-of-range';
+  | 'input-out-of-range'
+  | 'required-signal-missing'
+  | 'citation-quality-floor'
+  | 'duplicate-content'
+  | 'rank-signal-missing'
+  | 'low-calibration-sample-size'
+  | 'uncalibrated-score'
+  | 'index-integrity-incomplete'
+  | 'embedding-version-mismatch'
+  | 'acl-filter-unconfirmed'
+  | 'deleted-source-leakage';
 
 export interface ConfidenceWarning {
   code: ConfidenceWarningCode;
@@ -318,12 +367,94 @@ export interface ActionPolicy {
   abstainOnWarnings?: ConfidenceWarningCode[];
 }
 
+export type SignalName =
+  | 'answerRelevanceScore'
+  | 'faithfulnessScore'
+  | 'claimSupport'
+  | 'citationCoverageScore'
+  | 'invalidCitationCount'
+  | 'citationCount'
+  | 'conflictSignal'
+  | 'freshnessDates'
+  | 'corpusTypes'
+  | 'authorityRanks'
+  | 'contentHashes'
+  | 'candidateRanks'
+  | 'indexIntegrity';
+
+export interface SignalPolicy {
+  require?: SignalName[];
+  reviewWhenMissing?: SignalName[];
+  abstainWhenMissing?: SignalName[];
+  minCitationCoverageScore?: number;
+  maxInvalidCitationCount?: number;
+}
+
+export type ScoringPreset = 'legacy-v0.2' | 'balanced-v0.3' | 'production-v0.3';
+
+export type CalibrationOutcome = 'correct' | 'incorrect' | 'accepted' | 'rejected' | 'escalated';
+
+export interface CalibrationSample {
+  id?: string;
+  total: number;
+  recommendedAction?: RecommendedAction;
+  outcome: CalibrationOutcome;
+  queryType?: string;
+  tags?: string[];
+}
+
+export interface CalibrationBand {
+  min: number;
+  max: number;
+  count: number;
+  positiveCount: number;
+  positiveRate: number;
+  averageScore: number;
+}
+
+export interface CalibrationReport {
+  sampleCount: number;
+  positiveCount: number;
+  positiveRate: number;
+  bands: CalibrationBand[];
+  actionSummary: Record<RecommendedAction, { count: number; positiveRate: number }>;
+  recommendedPolicy: ActionPolicy;
+  warnings: ConfidenceWarning[];
+}
+
+export interface CalibrationConfig {
+  positiveOutcomes?: CalibrationOutcome[];
+  bands?: Array<{ min: number; max: number }>;
+  minSamplesPerBand?: number;
+  targetPrecisionForAnswer?: number;
+  targetRecallForAbstain?: number;
+}
+
+export interface ExternalEvaluationSignals {
+  faithfulnessScore?: number;
+  answerRelevanceScore?: number;
+  claimSupport?: ClaimSupport;
+  citationCoverageScore?: number;
+  invalidCitationCount?: number;
+  citationCount?: number;
+  hasConflict?: boolean;
+  conflictingCandidateCount?: number;
+}
+
+export interface EvaluationSignalMergeResult {
+  inputs: ScoringInputs;
+  warnings: ConfidenceWarning[];
+}
+
 /**
  * Optional extensions that add domain-specific dimensions to the scorecard.
  * Each active extension adds weight to the total and is renormalized to 0–100.
  * All extensions are opt-in — omit any you do not need.
  */
 export interface ScoringConfig {
+  /** Compatibility or production-hardening preset. */
+  preset?: ScoringPreset;
+
   /** Retrieval scoring configuration. */
   retrieval?: RetrievalConfig;
 
@@ -351,11 +482,17 @@ export interface ScoringConfig {
    */
   freshness?: FreshnessConfig;
 
+  /** Optional Index Integrity extension configuration. */
+  indexIntegrity?: IndexIntegrityConfig;
+
   /** Optional per-dimension max-point weights. */
   weights?: Partial<Record<DimensionName, number>>;
 
   /** Optional runtime action policy. */
   actionPolicy?: ActionPolicy;
+
+  /** Optional missing-signal policy for production gating. */
+  signalPolicy?: SignalPolicy;
 
   /** Input validation behavior. Config validation always throws. */
   validation?: 'warn' | 'strict';
@@ -379,8 +516,8 @@ export interface DimensionScore {
   /** Human-readable explanation of why this score was assigned. */
   explanation: string;
 
-  /** Machine-readable sub-signal attribution. Migrated dimension-by-dimension in v0.2. */
-  breakdown?: DimensionBreakdown;
+  /** Machine-readable sub-signal attribution. Present for every dimension. */
+  breakdown: DimensionBreakdown;
 
   /** Dimension-level warnings, rolled up into ConfidenceScorecard.meta.warnings. */
   warnings?: ConfidenceWarning[];
@@ -394,7 +531,7 @@ export interface Tier1Result {
   color: 'green' | 'amber' | 'orange' | 'red' | 'gray';
 }
 
-/** Tier 2 — System Readiness display (Corpus + Freshness). Null when no system extensions active. */
+/** Tier 2 — System Readiness display (Corpus + Freshness + Index Integrity). */
 export interface Tier2Result {
   /** Normalized 0–100 score for system health dimensions. */
   score: number;
@@ -428,8 +565,8 @@ export interface ConfidenceScorecard {
 
   /**
    * Tier 2: System Readiness.
-   * Combines Corpus and Freshness (if active).
-   * Null when neither Corpus nor Freshness extension is configured.
+   * Combines Corpus, Freshness, and Index Integrity (if active).
+   * Null when no Tier 2 extension is configured.
    */
   tier2: Tier2Result | null;
 
@@ -442,6 +579,7 @@ export interface ConfidenceScorecard {
     authority?: DimensionScore;
     corpus?: DimensionScore;
     freshness?: DimensionScore;
+    indexIntegrity?: DimensionScore;
   };
 
   /** Internal scoring metadata for debugging and transparency. */

@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.3.0] - 2026-06-08
+
+### Added
+
+- Production signal policy with `legacy-v0.2`, `balanced-v0.3`, and `production-v0.3` presets
+- `config.signalPolicy` for required signals, review/abstain gates, and citation quality floors
+- Offline `analyzeCalibration` utility for score bands, action summaries, threshold recommendations, and low-sample warnings
+- No-dependency evaluator bridge helpers: `mergeEvaluationSignals`, `fromRagasLike`, `fromDeepEvalLike`, `fromTruLensLike`, and `fromCustomJudge`
+- Retrieval duplicate-content and rank diagnostics, with opt-in penalty modes
+- Optional `indexIntegrity` Tier 2 extension for embedding version match, source version match, stale indexed content, ingestion failures, ACL confirmation, and deleted-source leakage
+- v0.3 algorithm and migration docs
+- Runnable examples for production gating, calibration analysis, evaluator bridge, retrieval tuning, and index integrity
+
+### Changed
+
+- `meta.algorithmVersion` is now `'0.3.0'`
+- `meta.schemaVersion` is now `'0.3'`
+- npm package files now include v0.3 docs and all examples
+- Package verification scripts now include `verify` and `verify:release`
+
+### Notes
+
+- The runtime scorer remains deterministic, synchronous, and dependency-free.
+- Scores are still not probabilities of correctness unless calibrated against local labeled outcomes.
+- v0.2-style behavior remains available through `preset: 'legacy-v0.2'`.
+
+---
+
 ## [0.2.0] — 2026-06-07
 
 ### Breaking

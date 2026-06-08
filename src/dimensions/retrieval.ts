@@ -16,6 +16,17 @@ type ResolvedRetrievalConfig = {
   minConfirmedMethods: number;
   topK: number;
   minTopScoreGapForClearWinner: number;
+  duplicateContent: {
+    mode: 'diagnostic' | 'penalize';
+    penaltyPerDuplicate: number;
+    maxPenalty: number;
+  };
+  rankPenalty: {
+    mode: 'diagnostic' | 'penalize';
+    afterRank: number;
+    penaltyPerRank: number;
+    maxPenalty: number;
+  };
 };
 
 const DEFAULT_RETRIEVAL_CONFIG: ResolvedRetrievalConfig = {
@@ -30,6 +41,17 @@ const DEFAULT_RETRIEVAL_CONFIG: ResolvedRetrievalConfig = {
   minConfirmedMethods: 2,
   topK: 3,
   minTopScoreGapForClearWinner: 0.05,
+  duplicateContent: {
+    mode: 'diagnostic',
+    penaltyPerDuplicate: 1,
+    maxPenalty: 4,
+  },
+  rankPenalty: {
+    mode: 'diagnostic',
+    afterRank: 10,
+    penaltyPerRank: 0.25,
+    maxPenalty: 3,
+  },
 };
 
 /**
@@ -62,6 +84,8 @@ export function scoreRetrieval(inputs: ScoringInputs, config: ScoringConfig = {}
           candidateCount: 0,
           topK: cfg.topK,
           duplicateContentHashCount: 0,
+          rankedCandidateCount: 0,
+          missingRankCount: 0,
           singleMethodCandidateCount: 0,
         },
         uncappedRaw: 0,
@@ -138,6 +162,32 @@ export function scoreRetrieval(inputs: ScoringInputs, config: ScoringConfig = {}
   parts.push(`${candidates.length} total candidates.`);
 
   const duplicateContentHashCount = countDuplicateContentHashes(candidates);
+  if (duplicateContentHashCount > 0) {
+    warnings.push(
+      createWarning(
+        'duplicate-content',
+        `${duplicateContentHashCount} duplicate content hash(es) detected among candidates.`,
+        'candidates[].contentHash',
+        cfg.duplicateContent.mode === 'penalize' ? 'warn' : 'info',
+      ),
+    );
+  }
+
+  const rankedCandidateCount = candidates.filter((candidate) =>
+    isPositiveInteger(candidate.rank),
+  ).length;
+  const missingRankCount = candidates.length - rankedCandidateCount;
+  if (cfg.rankPenalty.mode === 'penalize' && missingRankCount > 0) {
+    warnings.push(
+      createWarning(
+        'rank-signal-missing',
+        `${missingRankCount} candidate rank value(s) missing while rank penalty is active.`,
+        'candidates[].rank',
+        'info',
+      ),
+    );
+  }
+
   const scores = sorted.map((candidate) => candidate.combinedScore);
   const topScoreGap = scores.length >= 2 ? (scores[0] ?? 0) - (scores[1] ?? 0) : 0;
   if (scores.length >= 2 && topScoreGap < cfg.minTopScoreGapForClearWinner) {
@@ -150,9 +200,14 @@ export function scoreRetrieval(inputs: ScoringInputs, config: ScoringConfig = {}
     );
   }
 
-  const uncappedRaw = agreementPts + magnitudePts + diversityPts + breadthPts;
-  const raw = Math.min(MAX, uncappedRaw);
+  const duplicatePenalty = duplicateContentPenalty(duplicateContentHashCount, cfg);
+  const rankPenalty = candidateRankPenalty(candidates, cfg);
+  const uncappedRaw =
+    agreementPts + magnitudePts + diversityPts + breadthPts + duplicatePenalty + rankPenalty;
+  const raw = Math.max(0, Math.min(MAX, uncappedRaw));
   const adjustments: Record<string, number> = {};
+  if (duplicatePenalty !== 0) adjustments.duplicateContentPenalty = duplicatePenalty;
+  if (rankPenalty !== 0) adjustments.rankPenalty = rankPenalty;
   if (raw < uncappedRaw) {
     adjustments.cap = raw - uncappedRaw;
   }
@@ -175,6 +230,8 @@ export function scoreRetrieval(inputs: ScoringInputs, config: ScoringConfig = {}
         candidateCount: candidates.length,
         confirmedCandidateCount: confirmed.length,
         duplicateContentHashCount,
+        missingRankCount,
+        rankedCandidateCount,
         scoreStdDev: round(stdDev(scores), 4),
         singleMethodCandidateCount,
         topK: cfg.topK,
@@ -206,6 +263,27 @@ function resolveRetrievalConfig(config: ScoringConfig): ResolvedRetrievalConfig 
     minTopScoreGapForClearWinner:
       config.retrieval?.minTopScoreGapForClearWinner ??
       DEFAULT_RETRIEVAL_CONFIG.minTopScoreGapForClearWinner,
+    duplicateContent: {
+      mode:
+        config.retrieval?.duplicateContent?.mode ?? DEFAULT_RETRIEVAL_CONFIG.duplicateContent.mode,
+      penaltyPerDuplicate:
+        config.retrieval?.duplicateContent?.penaltyPerDuplicate ??
+        DEFAULT_RETRIEVAL_CONFIG.duplicateContent.penaltyPerDuplicate,
+      maxPenalty:
+        config.retrieval?.duplicateContent?.maxPenalty ??
+        DEFAULT_RETRIEVAL_CONFIG.duplicateContent.maxPenalty,
+    },
+    rankPenalty: {
+      mode: config.retrieval?.rankPenalty?.mode ?? DEFAULT_RETRIEVAL_CONFIG.rankPenalty.mode,
+      afterRank:
+        config.retrieval?.rankPenalty?.afterRank ?? DEFAULT_RETRIEVAL_CONFIG.rankPenalty.afterRank,
+      penaltyPerRank:
+        config.retrieval?.rankPenalty?.penaltyPerRank ??
+        DEFAULT_RETRIEVAL_CONFIG.rankPenalty.penaltyPerRank,
+      maxPenalty:
+        config.retrieval?.rankPenalty?.maxPenalty ??
+        DEFAULT_RETRIEVAL_CONFIG.rankPenalty.maxPenalty,
+    },
   };
 }
 
@@ -256,6 +334,34 @@ function countDuplicateContentHashes(candidates: Candidate[]): number {
     if (count > 1) duplicates += count - 1;
   }
   return duplicates;
+}
+
+function duplicateContentPenalty(
+  duplicateContentHashCount: number,
+  config: ResolvedRetrievalConfig,
+): number {
+  if (config.duplicateContent.mode !== 'penalize') return 0;
+  const penalty = duplicateContentHashCount * config.duplicateContent.penaltyPerDuplicate;
+  return -Math.min(penalty, config.duplicateContent.maxPenalty);
+}
+
+function candidateRankPenalty(candidates: Candidate[], config: ResolvedRetrievalConfig): number {
+  if (config.rankPenalty.mode !== 'penalize') return 0;
+
+  const penalty = candidates.reduce((sum, candidate) => {
+    if (!isPositiveInteger(candidate.rank) || candidate.rank <= config.rankPenalty.afterRank) {
+      return sum;
+    }
+    return (
+      sum + (candidate.rank - config.rankPenalty.afterRank) * config.rankPenalty.penaltyPerRank
+    );
+  }, 0);
+
+  return -Math.min(penalty, config.rankPenalty.maxPenalty);
+}
+
+function isPositiveInteger(value: number | undefined): value is number {
+  return value !== undefined && Number.isInteger(value) && value > 0;
 }
 
 function stdDev(values: number[]): number {

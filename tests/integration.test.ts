@@ -82,6 +82,11 @@ describe('computeConfidence — API contracts', () => {
     expect(sc.dimensions.freshness).toBeUndefined();
   });
 
+  test('dimensions.indexIntegrity is undefined when Index Integrity extension not active', () => {
+    const sc = computeConfidence(base);
+    expect(sc.dimensions.indexIntegrity).toBeUndefined();
+  });
+
   test('tier2 is null when no system extensions active', () => {
     const sc = computeConfidence(base);
     expect(sc.tier2).toBeNull();
@@ -452,6 +457,29 @@ describe('extension activation', () => {
     expect(sc.meta.maxPossible).toBe(115);
     expect(sc.meta.activeExtensions).toHaveLength(3);
   });
+
+  test('index integrity extension: maxPossible = 80, dimensions.indexIntegrity present, tier2 present', () => {
+    const sc = computeConfidence(
+      {
+        ...baseInputs,
+        indexIntegrity: {
+          expectedEmbeddingModelVersion: 'embed-v1',
+          actualEmbeddingModelVersion: 'embed-v1',
+          sourceVersionMatchRatio: 1,
+          staleIndexedDocumentRatio: 0,
+          failedIngestionCount: 0,
+          aclFilterConfirmed: true,
+          deletedSourceLeakageCount: 0,
+        },
+      },
+      { indexIntegrity: {} },
+    );
+
+    expect(sc.meta.maxPossible).toBe(80);
+    expect(sc.dimensions.indexIntegrity).toBeDefined();
+    expect(sc.tier2).not.toBeNull();
+    expect(sc.meta.activeExtensions).toContain('indexIntegrity');
+  });
 });
 
 // ── Normalization invariants ──────────────────────────────────────────────────
@@ -566,7 +594,7 @@ describe('breakdown.raw === DimensionScore.raw invariant', () => {
     expect(sc.dimensions.freshness?.breakdown?.raw).toBe(sc.dimensions.freshness?.raw);
   });
 
-  test('all 7 dimensions simultaneously — every breakdown.raw matches', () => {
+  test('all 8 dimensions simultaneously — every breakdown.raw matches', () => {
     const sc = computeConfidence(
       {
         supportLevel: 'high',
@@ -574,6 +602,15 @@ describe('breakdown.raw === DimensionScore.raw invariant', () => {
         faithfulnessScore: 0.92,
         answerRelevanceScore: 0.88,
         corpusTypeCount: 5,
+        indexIntegrity: {
+          expectedEmbeddingModelVersion: 'embed-v1',
+          actualEmbeddingModelVersion: 'embed-v1',
+          sourceVersionMatchRatio: 1,
+          staleIndexedDocumentRatio: 0,
+          failedIngestionCount: 0,
+          aclFilterConfirmed: true,
+          deletedSourceLeakageCount: 0,
+        },
         candidates: [
           {
             ...multiMethod(0.9, 'doc1'),
@@ -597,6 +634,7 @@ describe('breakdown.raw === DimensionScore.raw invariant', () => {
         authority: {},
         corpus: { expectedTypeCount: 5 },
         freshness: { now: NOW },
+        indexIntegrity: {},
       },
     );
     const dims = sc.dimensions;
@@ -607,5 +645,6 @@ describe('breakdown.raw === DimensionScore.raw invariant', () => {
     expect(dims.authority?.breakdown?.raw).toBe(dims.authority?.raw);
     expect(dims.corpus?.breakdown?.raw).toBe(dims.corpus?.raw);
     expect(dims.freshness?.breakdown?.raw).toBe(dims.freshness?.raw);
+    expect(dims.indexIntegrity?.breakdown?.raw).toBe(dims.indexIntegrity?.raw);
   });
 });

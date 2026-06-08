@@ -26,6 +26,7 @@ export function validateConfig(config: ScoringConfig): void {
   validateRelevanceConfig(config);
   validateFreshnessConfig(config);
   validateCorpusConfig(config);
+  validateIndexIntegrityConfig(config);
   validateWeights(config);
 }
 
@@ -139,6 +140,59 @@ export function collectInputWarnings(
     );
   }
 
+  if (config.indexIntegrity !== undefined && inputs.indexIntegrity !== undefined) {
+    const index = inputs.indexIntegrity;
+
+    if (index.sourceVersionMatchRatio !== undefined && !isScore(index.sourceVersionMatchRatio)) {
+      warnings.push(
+        createWarning(
+          'input-out-of-range',
+          'indexIntegrity.sourceVersionMatchRatio should be a finite number in the 0-1 range.',
+          'indexIntegrity.sourceVersionMatchRatio',
+        ),
+      );
+    }
+
+    if (
+      index.staleIndexedDocumentRatio !== undefined &&
+      !isScore(index.staleIndexedDocumentRatio)
+    ) {
+      warnings.push(
+        createWarning(
+          'input-out-of-range',
+          'indexIntegrity.staleIndexedDocumentRatio should be a finite number in the 0-1 range.',
+          'indexIntegrity.staleIndexedDocumentRatio',
+        ),
+      );
+    }
+
+    if (
+      index.failedIngestionCount !== undefined &&
+      (!Number.isInteger(index.failedIngestionCount) || index.failedIngestionCount < 0)
+    ) {
+      warnings.push(
+        createWarning(
+          'input-out-of-range',
+          'indexIntegrity.failedIngestionCount should be a non-negative integer.',
+          'indexIntegrity.failedIngestionCount',
+        ),
+      );
+    }
+
+    if (
+      index.deletedSourceLeakageCount !== undefined &&
+      (!Number.isInteger(index.deletedSourceLeakageCount) || index.deletedSourceLeakageCount < 0)
+    ) {
+      warnings.push(
+        createWarning(
+          'input-out-of-range',
+          'indexIntegrity.deletedSourceLeakageCount should be a non-negative integer.',
+          'indexIntegrity.deletedSourceLeakageCount',
+        ),
+      );
+    }
+  }
+
   return warnings;
 }
 
@@ -179,6 +233,71 @@ function validateRetrievalConfig(config: ScoringConfig): void {
     if (!Number.isFinite(threshold)) {
       throw new Error(`retrieval.methodThresholds.${method} must be finite.`);
     }
+  }
+
+  validateDuplicateContentConfig(config);
+  validateRankPenaltyConfig(config);
+}
+
+function validateDuplicateContentConfig(config: ScoringConfig): void {
+  const duplicateContent = config.retrieval?.duplicateContent;
+  if (duplicateContent === undefined) return;
+
+  if (
+    duplicateContent.mode !== undefined &&
+    duplicateContent.mode !== 'diagnostic' &&
+    duplicateContent.mode !== 'penalize'
+  ) {
+    throw new Error('retrieval.duplicateContent.mode must be diagnostic or penalize.');
+  }
+
+  if (
+    duplicateContent.penaltyPerDuplicate !== undefined &&
+    (!Number.isFinite(duplicateContent.penaltyPerDuplicate) ||
+      duplicateContent.penaltyPerDuplicate < 0)
+  ) {
+    throw new Error('retrieval.duplicateContent.penaltyPerDuplicate must be >= 0.');
+  }
+
+  if (
+    duplicateContent.maxPenalty !== undefined &&
+    (!Number.isFinite(duplicateContent.maxPenalty) || duplicateContent.maxPenalty < 0)
+  ) {
+    throw new Error('retrieval.duplicateContent.maxPenalty must be >= 0.');
+  }
+}
+
+function validateRankPenaltyConfig(config: ScoringConfig): void {
+  const rankPenalty = config.retrieval?.rankPenalty;
+  if (rankPenalty === undefined) return;
+
+  if (
+    rankPenalty.mode !== undefined &&
+    rankPenalty.mode !== 'diagnostic' &&
+    rankPenalty.mode !== 'penalize'
+  ) {
+    throw new Error('retrieval.rankPenalty.mode must be diagnostic or penalize.');
+  }
+
+  if (
+    rankPenalty.afterRank !== undefined &&
+    (!Number.isInteger(rankPenalty.afterRank) || rankPenalty.afterRank < 1)
+  ) {
+    throw new Error('retrieval.rankPenalty.afterRank must be an integer >= 1.');
+  }
+
+  if (
+    rankPenalty.penaltyPerRank !== undefined &&
+    (!Number.isFinite(rankPenalty.penaltyPerRank) || rankPenalty.penaltyPerRank < 0)
+  ) {
+    throw new Error('retrieval.rankPenalty.penaltyPerRank must be >= 0.');
+  }
+
+  if (
+    rankPenalty.maxPenalty !== undefined &&
+    (!Number.isFinite(rankPenalty.maxPenalty) || rankPenalty.maxPenalty < 0)
+  ) {
+    throw new Error('retrieval.rankPenalty.maxPenalty must be >= 0.');
   }
 }
 
@@ -228,6 +347,33 @@ function validateCorpusConfig(config: ScoringConfig): void {
     (!Number.isInteger(corpus.expectedTypeCount) || corpus.expectedTypeCount < 1)
   ) {
     throw new Error('corpus.expectedTypeCount must be an integer >= 1.');
+  }
+}
+
+function validateIndexIntegrityConfig(config: ScoringConfig): void {
+  const indexIntegrity = config.indexIntegrity;
+  if (indexIntegrity === undefined) return;
+
+  const maxFailedIngestionsForFullScore = indexIntegrity.maxFailedIngestionsForFullScore ?? 0;
+  const staleRatioWarnAt = indexIntegrity.staleRatioWarnAt ?? 0.01;
+  const staleRatioZeroAt = indexIntegrity.staleRatioZeroAt ?? 0.1;
+
+  if (!Number.isInteger(maxFailedIngestionsForFullScore) || maxFailedIngestionsForFullScore < 0) {
+    throw new Error(
+      'indexIntegrity.maxFailedIngestionsForFullScore must be a non-negative integer.',
+    );
+  }
+
+  if (!Number.isFinite(staleRatioWarnAt) || staleRatioWarnAt < 0 || staleRatioWarnAt > 1) {
+    throw new Error('indexIntegrity.staleRatioWarnAt must be in the 0-1 range.');
+  }
+
+  if (!Number.isFinite(staleRatioZeroAt) || staleRatioZeroAt < 0 || staleRatioZeroAt > 1) {
+    throw new Error('indexIntegrity.staleRatioZeroAt must be in the 0-1 range.');
+  }
+
+  if (staleRatioZeroAt <= staleRatioWarnAt) {
+    throw new Error('indexIntegrity.staleRatioZeroAt must be greater than staleRatioWarnAt.');
   }
 }
 

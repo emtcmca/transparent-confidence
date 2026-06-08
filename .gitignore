@@ -5,4 +5,5 @@ dist/
 coverage/
 .DS_Store
 _working/
+tests/sandbox/
 docs/boardpath-integration-plan.md

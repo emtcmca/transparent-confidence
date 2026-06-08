@@ -40,6 +40,10 @@ export function missingSignalsForWarnings(warnings: ConfidenceWarning[]): string
     if (warning.code === 'missing-freshness-dates') signals.add('freshnessDates');
     if (warning.code === 'missing-corpus-count') signals.add('corpusTypes');
     if (warning.code === 'authority-unclassified') signals.add('authorityRanks');
+    if (warning.code === 'index-integrity-incomplete') signals.add('indexIntegrity');
+    if (warning.code === 'required-signal-missing' && warning.path !== undefined) {
+      signals.add(warning.path);
+    }
   }
 
   return [...signals];

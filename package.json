@@ -1,7 +1,7 @@
 {
   "name": "transparent-confidence",
-  "version": "0.2.0",
-  "description": "Explainable confidence scoring for RAG system answers — structured 0–100 scorecard with action policy, warnings, and machine-readable breakdowns across 7 dimensions",
+  "version": "0.3.0",
+  "description": "Deterministic confidence scorecards for RAG systems with signal policy, calibration, evaluator bridges, and index integrity",
   "author": "Eric Tetzlaff",
   "license": "Apache-2.0",
   "type": "module",
@@ -17,6 +17,11 @@
   },
   "files": [
     "dist",
+    "docs/algorithm-v0-2.md",
+    "docs/migration-v0-2.md",
+    "docs/algorithm-v0-3.md",
+    "docs/migration-v0-3.md",
+    "examples",
     "README.md",
     "CHANGELOG.md"
   ],
@@ -46,7 +51,9 @@
     "coverage": "vitest run --coverage",
     "lint": "biome check src/ tests/ examples/",
     "lint:fix": "biome check --write src/ tests/ examples/",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "verify": "npm run typecheck && npm run lint && npm test && npm run build",
+    "verify:release": "npm run verify && npm run coverage && npm pack --dry-run && npm publish --dry-run"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.16",

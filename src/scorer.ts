@@ -3,6 +3,7 @@ import { scoreConsistency } from './dimensions/consistency.js';
 import { scoreCorpus } from './dimensions/corpus.js';
 import { scoreFreshness } from './dimensions/freshness.js';
 import { scoreGrounding } from './dimensions/grounding.js';
+import { scoreIndexIntegrity } from './dimensions/index-integrity.js';
 import { scoreRelevance } from './dimensions/relevance.js';
 import { scoreRetrieval } from './dimensions/retrieval.js';
 import { deriveLabel, deriveTier1, deriveTier2 } from './labels.js';
@@ -10,17 +11,20 @@ import { normalize } from './normalize.js';
 import type {
   ActionPolicy,
   ConfidenceScorecard,
+  ConfidenceWarning,
   ConfidenceWarningCode,
   DimensionName,
   RecommendedAction,
   ScoringConfig,
   ScoringInputs,
+  SignalName,
+  SignalPolicy,
 } from './types.js';
 import { collectInputWarnings, enforceInputValidation, validateConfig } from './validation.js';
-import { missingSignalsForWarnings, uniqueWarnings } from './warnings.js';
+import { createWarning, missingSignalsForWarnings, uniqueWarnings } from './warnings.js';
 
-export const ALGORITHM_VERSION = '0.2.0';
-export const SCORECARD_SCHEMA_VERSION = '0.2';
+export const ALGORITHM_VERSION = '0.3.0';
+export const SCORECARD_SCHEMA_VERSION = '0.3';
 
 // Default dimension max values — preserved from v0.1 so default behavior is unchanged.
 const DEFAULT_WEIGHTS: Record<DimensionName, number> = {
@@ -31,6 +35,7 @@ const DEFAULT_WEIGHTS: Record<DimensionName, number> = {
   authority: 20,
   corpus: 15,
   freshness: 15,
+  indexIntegrity: 15,
 };
 
 const DEFAULT_ACTION_POLICY = {
@@ -54,6 +59,21 @@ type ResolvedActionPolicy = {
   abstainOnWarnings: ConfidenceWarningCode[];
 };
 
+type ResolvedSignalPolicy = {
+  require: SignalName[];
+  reviewWhenMissing: SignalName[];
+  abstainWhenMissing: SignalName[];
+  minCitationCoverageScore?: number;
+  maxInvalidCitationCount?: number;
+  requireSupportEvaluator: boolean;
+};
+
+type SignalPolicyResult = {
+  warnings: ConfidenceWarning[];
+  reviewMissingSignals: SignalName[];
+  abstainMissingSignals: SignalName[];
+};
+
 /**
  * Computes a structured confidence scorecard for a RAG answer.
  *
@@ -75,6 +95,7 @@ export function computeConfidence(
   const hasAuthority = config.authority !== undefined;
   const hasCorpus = config.corpus !== undefined;
   const hasFreshness = config.freshness !== undefined;
+  const hasIndexIntegrity = config.indexIntegrity !== undefined;
 
   const grounding = scoreGrounding(inputs);
   const retrieval = scoreRetrieval(inputs, config);
@@ -83,18 +104,22 @@ export function computeConfidence(
   const authority = hasAuthority ? scoreAuthority(inputs, config) : undefined;
   const corpus = hasCorpus ? scoreCorpus(inputs, config) : undefined;
   const freshness = hasFreshness ? scoreFreshness(inputs, config) : undefined;
+  const indexIntegrity = hasIndexIntegrity ? scoreIndexIntegrity(inputs, config) : undefined;
+  const signalPolicyResult = collectSignalPolicyWarnings(inputs, config);
 
   const activeExtensions: string[] = [];
   if (hasRelevance) activeExtensions.push('relevance');
   if (hasAuthority) activeExtensions.push('authority');
   if (hasCorpus) activeExtensions.push('corpus');
   if (hasFreshness) activeExtensions.push('freshness');
+  if (hasIndexIntegrity) activeExtensions.push('indexIntegrity');
 
   const activeDimensions: DimensionName[] = ['grounding', 'retrieval', 'consistency'];
   if (hasRelevance) activeDimensions.push('relevance');
   if (hasAuthority) activeDimensions.push('authority');
   if (hasCorpus) activeDimensions.push('corpus');
   if (hasFreshness) activeDimensions.push('freshness');
+  if (hasIndexIntegrity) activeDimensions.push('indexIntegrity');
 
   // ── Weight resolution ────────────────────────────────────────
   const cw = config.weights ?? {};
@@ -106,6 +131,9 @@ export function computeConfidence(
     ...(hasAuthority && { authority: cw.authority ?? DEFAULT_WEIGHTS.authority }),
     ...(hasCorpus && { corpus: cw.corpus ?? DEFAULT_WEIGHTS.corpus }),
     ...(hasFreshness && { freshness: cw.freshness ?? DEFAULT_WEIGHTS.freshness }),
+    ...(hasIndexIntegrity && {
+      indexIntegrity: cw.indexIntegrity ?? DEFAULT_WEIGHTS.indexIntegrity,
+    }),
   };
 
   // ── Weighted dimension contributions ────────────────────────
@@ -126,9 +154,23 @@ export function computeConfidence(
   const wFreshness = freshness
     ? scaleDim(freshness.raw, freshness.max, activeWeights.freshness ?? DEFAULT_WEIGHTS.freshness)
     : 0;
+  const wIndexIntegrity = indexIntegrity
+    ? scaleDim(
+        indexIntegrity.raw,
+        indexIntegrity.max,
+        activeWeights.indexIntegrity ?? DEFAULT_WEIGHTS.indexIntegrity,
+      )
+    : 0;
 
   const rawTotal =
-    wGrounding + wRetrieval + wConsistency + wRelevance + wAuthority + wCorpus + wFreshness;
+    wGrounding +
+    wRetrieval +
+    wConsistency +
+    wRelevance +
+    wAuthority +
+    wCorpus +
+    wFreshness +
+    wIndexIntegrity;
   const maxPossible =
     activeWeights.grounding +
     activeWeights.retrieval +
@@ -136,7 +178,8 @@ export function computeConfidence(
     (hasRelevance ? (activeWeights.relevance ?? DEFAULT_WEIGHTS.relevance) : 0) +
     (hasAuthority ? (activeWeights.authority ?? DEFAULT_WEIGHTS.authority) : 0) +
     (hasCorpus ? (activeWeights.corpus ?? DEFAULT_WEIGHTS.corpus) : 0) +
-    (hasFreshness ? (activeWeights.freshness ?? DEFAULT_WEIGHTS.freshness) : 0);
+    (hasFreshness ? (activeWeights.freshness ?? DEFAULT_WEIGHTS.freshness) : 0) +
+    (hasIndexIntegrity ? (activeWeights.indexIntegrity ?? DEFAULT_WEIGHTS.indexIntegrity) : 0);
 
   const total = normalize(rawTotal, maxPossible);
   const { label, color: labelColor } = deriveLabel(total);
@@ -150,6 +193,8 @@ export function computeConfidence(
     ...(authority?.warnings ?? []),
     ...(corpus?.warnings ?? []),
     ...(freshness?.warnings ?? []),
+    ...(indexIntegrity?.warnings ?? []),
+    ...signalPolicyResult.warnings,
   ]);
 
   // ── Tier 1: grounding + retrieval + consistency + relevance + authority ───────
@@ -162,11 +207,12 @@ export function computeConfidence(
     (hasAuthority ? (activeWeights.authority ?? DEFAULT_WEIGHTS.authority) : 0);
   const tier1 = deriveTier1(tier1RawW, tier1MaxW, inputs.documentsSilent === true);
 
-  // ── Tier 2: corpus + freshness — null when neither active ─────────────────────
+  // ── Tier 2: corpus + freshness + index integrity; null when none are active ──
   const tier2MaxW =
     (hasCorpus ? (activeWeights.corpus ?? DEFAULT_WEIGHTS.corpus) : 0) +
-    (hasFreshness ? (activeWeights.freshness ?? DEFAULT_WEIGHTS.freshness) : 0);
-  const tier2 = deriveTier2(wCorpus + wFreshness, tier2MaxW);
+    (hasFreshness ? (activeWeights.freshness ?? DEFAULT_WEIGHTS.freshness) : 0) +
+    (hasIndexIntegrity ? (activeWeights.indexIntegrity ?? DEFAULT_WEIGHTS.indexIntegrity) : 0);
+  const tier2 = deriveTier2(wCorpus + wFreshness + wIndexIntegrity, tier2MaxW);
 
   // ── Recommended action ────────────────────────────────────────────────────────
   const policy = resolveActionPolicy(config);
@@ -177,6 +223,8 @@ export function computeConfidence(
     documentsSilent: inputs.documentsSilent === true,
     tier1Score,
     warningCodes,
+    reviewMissingSignals: signalPolicyResult.reviewMissingSignals,
+    abstainMissingSignals: signalPolicyResult.abstainMissingSignals,
     policy,
   });
 
@@ -196,6 +244,7 @@ export function computeConfidence(
       ...(authority !== undefined && { authority }),
       ...(corpus !== undefined && { corpus }),
       ...(freshness !== undefined && { freshness }),
+      ...(indexIntegrity !== undefined && { indexIntegrity }),
     },
     meta: {
       algorithmVersion: ALGORITHM_VERSION,
@@ -244,6 +293,156 @@ function resolveActionPolicy(config: ScoringConfig): ResolvedActionPolicy {
   };
 }
 
+function resolveSignalPolicy(config: ScoringConfig): ResolvedSignalPolicy {
+  const preset = config.preset ?? 'balanced-v0.3';
+  const presetPolicy = signalPolicyForPreset(preset);
+  const callerPolicy: SignalPolicy | undefined = config.signalPolicy;
+
+  return {
+    require: uniqueSignals([...presetPolicy.require, ...(callerPolicy?.require ?? [])]),
+    reviewWhenMissing: uniqueSignals([
+      ...presetPolicy.reviewWhenMissing,
+      ...(callerPolicy?.reviewWhenMissing ?? []),
+    ]),
+    abstainWhenMissing: uniqueSignals([
+      ...presetPolicy.abstainWhenMissing,
+      ...(callerPolicy?.abstainWhenMissing ?? []),
+    ]),
+    ...(callerPolicy?.minCitationCoverageScore !== undefined && {
+      minCitationCoverageScore: callerPolicy.minCitationCoverageScore,
+    }),
+    ...(callerPolicy?.maxInvalidCitationCount !== undefined && {
+      maxInvalidCitationCount: callerPolicy.maxInvalidCitationCount,
+    }),
+    requireSupportEvaluator: presetPolicy.requireSupportEvaluator,
+  };
+}
+
+function signalPolicyForPreset(preset: ScoringConfig['preset']): ResolvedSignalPolicy {
+  if (preset === 'production-v0.3') {
+    return {
+      require: ['answerRelevanceScore', 'conflictSignal'],
+      reviewWhenMissing: ['answerRelevanceScore', 'conflictSignal'],
+      abstainWhenMissing: [],
+      requireSupportEvaluator: true,
+    };
+  }
+
+  return {
+    require: [],
+    reviewWhenMissing: [],
+    abstainWhenMissing: [],
+    requireSupportEvaluator: false,
+  };
+}
+
+function collectSignalPolicyWarnings(
+  inputs: ScoringInputs,
+  config: ScoringConfig,
+): SignalPolicyResult {
+  const policy = resolveSignalPolicy(config);
+  const warnings: ConfidenceWarning[] = [];
+  const reviewMissingSignals: SignalName[] = [];
+  const abstainMissingSignals: SignalName[] = [];
+
+  for (const signal of policy.require) {
+    if (!isSignalMissing(signal, inputs)) continue;
+
+    warnings.push(
+      createWarning(
+        'required-signal-missing',
+        `Required signal '${signal}' was not provided.`,
+        signal,
+      ),
+    );
+
+    if (policy.reviewWhenMissing.includes(signal)) reviewMissingSignals.push(signal);
+    if (policy.abstainWhenMissing.includes(signal)) abstainMissingSignals.push(signal);
+  }
+
+  if (
+    policy.requireSupportEvaluator &&
+    inputs.faithfulnessScore === undefined &&
+    inputs.claimSupport === undefined
+  ) {
+    warnings.push(
+      createWarning(
+        'required-signal-missing',
+        'Production preset requires faithfulnessScore or claimSupport.',
+        'faithfulnessScore',
+      ),
+    );
+    reviewMissingSignals.push('faithfulnessScore');
+  }
+
+  if (
+    policy.minCitationCoverageScore !== undefined &&
+    inputs.citationCoverageScore !== undefined &&
+    inputs.citationCoverageScore < policy.minCitationCoverageScore
+  ) {
+    warnings.push(
+      createWarning(
+        'citation-quality-floor',
+        `citationCoverageScore is below the configured floor (${policy.minCitationCoverageScore}).`,
+        'citationCoverageScore',
+      ),
+    );
+  }
+
+  if (
+    policy.maxInvalidCitationCount !== undefined &&
+    (inputs.invalidCitationCount ?? 0) > policy.maxInvalidCitationCount
+  ) {
+    warnings.push(
+      createWarning(
+        'citation-quality-floor',
+        `invalidCitationCount exceeds the configured maximum (${policy.maxInvalidCitationCount}).`,
+        'invalidCitationCount',
+      ),
+    );
+  }
+
+  return {
+    warnings,
+    reviewMissingSignals: uniqueSignals(reviewMissingSignals),
+    abstainMissingSignals: uniqueSignals(abstainMissingSignals),
+  };
+}
+
+function isSignalMissing(signal: SignalName, inputs: ScoringInputs): boolean {
+  if (signal === 'answerRelevanceScore') return inputs.answerRelevanceScore === undefined;
+  if (signal === 'faithfulnessScore') return inputs.faithfulnessScore === undefined;
+  if (signal === 'claimSupport') return inputs.claimSupport === undefined;
+  if (signal === 'citationCoverageScore') return inputs.citationCoverageScore === undefined;
+  if (signal === 'invalidCitationCount') return inputs.invalidCitationCount === undefined;
+  if (signal === 'citationCount') return inputs.citationCount === undefined;
+  if (signal === 'conflictSignal') {
+    return inputs.hasConflict === undefined && inputs.conflictingCandidateCount === undefined;
+  }
+  if (signal === 'freshnessDates') {
+    return !inputs.candidates.some((candidate) => candidate.lastUpdated instanceof Date);
+  }
+  if (signal === 'corpusTypes') {
+    return inputs.corpusTypeCount === undefined && inputs.presentTypes === undefined;
+  }
+  if (signal === 'authorityRanks') {
+    return !inputs.candidates.some(
+      (candidate) => candidate.authorityRank !== undefined || candidate.documentType !== undefined,
+    );
+  }
+  if (signal === 'contentHashes') {
+    return !inputs.candidates.some((candidate) => candidate.contentHash !== undefined);
+  }
+  if (signal === 'candidateRanks') {
+    return !inputs.candidates.some((candidate) => candidate.rank !== undefined);
+  }
+  return inputs.indexIntegrity === undefined;
+}
+
+function uniqueSignals(signals: SignalName[]): SignalName[] {
+  return [...new Set(signals)];
+}
+
 /**
  * Derives the recommended action using the 8-rule cascade policy.
  * Returns both the action and the reason string identifying the first rule triggered.
@@ -253,15 +452,33 @@ function deriveRecommendedAction(ctx: {
   documentsSilent: boolean;
   tier1Score: number;
   warningCodes: ConfidenceWarningCode[];
+  reviewMissingSignals: SignalName[];
+  abstainMissingSignals: SignalName[];
   policy: ResolvedActionPolicy;
 }): { action: RecommendedAction; reason: string } {
-  const { total, documentsSilent, tier1Score, warningCodes, policy } = ctx;
+  const {
+    total,
+    documentsSilent,
+    tier1Score,
+    warningCodes,
+    reviewMissingSignals,
+    abstainMissingSignals,
+    policy,
+  } = ctx;
 
   // Rule 1: documentsSilent overrides everything
   if (documentsSilent) {
     return {
       action: 'abstain',
       reason: 'Documents do not address this question (documentsSilent is true).',
+    };
+  }
+
+  // Rule 1b: required signal policy can force abstain
+  if (abstainMissingSignals.length > 0) {
+    return {
+      action: 'abstain',
+      reason: `Required signal(s) missing matched abstainWhenMissing policy: ${abstainMissingSignals.join(', ')}.`,
     };
   }
 
@@ -287,6 +504,14 @@ function deriveRecommendedAction(ctx: {
     return {
       action: 'review',
       reason: `Tier 1 score ${tier1Score} is below requireTier1AtLeast threshold (${policy.requireTier1AtLeast}).`,
+    };
+  }
+
+  // Rule 4b: required signal policy can force review
+  if (reviewMissingSignals.length > 0) {
+    return {
+      action: 'review',
+      reason: `Required signal(s) missing matched reviewWhenMissing policy: ${reviewMissingSignals.join(', ')}.`,
     };
   }
 

@@ -1,9 +1,9 @@
 /**
- * Example: Full Pipeline — all 7 dimensions + action policy + breakdown
+ * Example: Full Pipeline - authority, corpus, freshness + action policy + breakdown
  *
  * Scenario: A legal research assistant answers a complex multi-document question
- * about amendment precedence in HOA governing documents. All 7 dimensions are
- * active: grounding, retrieval, consistency, relevance, authority, corpus, freshness.
+ * about amendment precedence in HOA governing documents. Seven dimensions are
+ * active: grounding, retrieval, consistency, relevance, authority, corpus, and freshness.
  * All enhanced signals are provided. Custom action policy lowers the answer
  * threshold to match the domain's review tolerance.
  *

@@ -27,22 +27,22 @@ const goodInputs: ScoringInputs = {
 // ─────────────────────────────────────────────────────────────
 
 describe('meta version fields', () => {
-  test('meta.algorithmVersion = 0.2.0', () => {
+  test('meta.algorithmVersion = 0.3.0', () => {
     const sc = computeConfidence(goodInputs, {});
-    expect(sc.meta.algorithmVersion).toBe('0.2.0');
+    expect(sc.meta.algorithmVersion).toBe('0.3.0');
   });
 
-  test('meta.schemaVersion = 0.2', () => {
+  test('meta.schemaVersion = 0.3', () => {
     const sc = computeConfidence(goodInputs, {});
-    expect(sc.meta.schemaVersion).toBe('0.2');
+    expect(sc.meta.schemaVersion).toBe('0.3');
   });
 
-  test('ALGORITHM_VERSION export = 0.2.0', () => {
-    expect(ALGORITHM_VERSION).toBe('0.2.0');
+  test('ALGORITHM_VERSION export = 0.3.0', () => {
+    expect(ALGORITHM_VERSION).toBe('0.3.0');
   });
 
-  test('SCORECARD_SCHEMA_VERSION export = 0.2', () => {
-    expect(SCORECARD_SCHEMA_VERSION).toBe('0.2');
+  test('SCORECARD_SCHEMA_VERSION export = 0.3', () => {
+    expect(SCORECARD_SCHEMA_VERSION).toBe('0.3');
   });
 });
 
@@ -64,6 +64,7 @@ describe('default weights in meta', () => {
     expect(sc.meta.weights.authority).toBeUndefined();
     expect(sc.meta.weights.corpus).toBeUndefined();
     expect(sc.meta.weights.freshness).toBeUndefined();
+    expect(sc.meta.weights.indexIntegrity).toBeUndefined();
   });
 
   test('active extension weights appear in meta.weights', () => {
@@ -71,10 +72,12 @@ describe('default weights in meta', () => {
       authority: {},
       corpus: { expectedTypeCount: 5 },
       freshness: {},
+      indexIntegrity: {},
     });
     expect(sc.meta.weights.authority).toBe(20);
     expect(sc.meta.weights.corpus).toBe(15);
     expect(sc.meta.weights.freshness).toBe(15);
+    expect(sc.meta.weights.indexIntegrity).toBe(15);
   });
 
   test('relevance weight 15 appears when relevance active', () => {
@@ -160,12 +163,26 @@ describe('meta.activeDimensions', () => {
     expect(sc.meta.activeDimensions).toContain('relevance');
   });
 
-  test('all 7 dimensions active when all extensions configured + relevance supplied', () => {
+  test('all 8 dimensions active when all extensions configured + relevance supplied', () => {
     const sc = computeConfidence(
-      { ...goodInputs, answerRelevanceScore: 0.85, corpusTypeCount: 3 },
-      { authority: {}, corpus: { expectedTypeCount: 5 }, freshness: {} },
+      {
+        ...goodInputs,
+        answerRelevanceScore: 0.85,
+        corpusTypeCount: 3,
+        indexIntegrity: {
+          expectedEmbeddingModelVersion: 'embed-v1',
+          actualEmbeddingModelVersion: 'embed-v1',
+          sourceVersionMatchRatio: 1,
+          staleIndexedDocumentRatio: 0,
+          failedIngestionCount: 0,
+          aclFilterConfirmed: true,
+          deletedSourceLeakageCount: 0,
+        },
+      },
+      { authority: {}, corpus: { expectedTypeCount: 5 }, freshness: {}, indexIntegrity: {} },
     );
-    expect(sc.meta.activeDimensions).toHaveLength(7);
+    expect(sc.meta.activeDimensions).toHaveLength(8);
+    expect(sc.meta.activeDimensions).toContain('indexIntegrity');
   });
 });
 

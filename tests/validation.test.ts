@@ -34,6 +34,41 @@ describe('validation — config errors', () => {
     ).toThrow(/retrieval\.topK/);
   });
 
+  test('throws when duplicate content penalty config is invalid', () => {
+    expect(() =>
+      computeConfidence(baseInputs, {
+        retrieval: {
+          duplicateContent: {
+            penaltyPerDuplicate: -1,
+          },
+        },
+      }),
+    ).toThrow(/retrieval\.duplicateContent\.penaltyPerDuplicate/);
+  });
+
+  test('throws when rank penalty config is invalid', () => {
+    expect(() =>
+      computeConfidence(baseInputs, {
+        retrieval: {
+          rankPenalty: {
+            afterRank: 0,
+          },
+        },
+      }),
+    ).toThrow(/retrieval\.rankPenalty\.afterRank/);
+  });
+
+  test('throws when index integrity ratio thresholds are invalid', () => {
+    expect(() =>
+      computeConfidence(baseInputs, {
+        indexIntegrity: {
+          staleRatioWarnAt: 0.2,
+          staleRatioZeroAt: 0.1,
+        },
+      }),
+    ).toThrow(/indexIntegrity\.staleRatioZeroAt/);
+  });
+
   test('throws when a configured dimension weight is not positive', () => {
     expect(() =>
       computeConfidence(baseInputs, {
@@ -95,6 +130,25 @@ describe('validation — input issues', () => {
     );
   });
 
+  test('records overflowed claimSupport supported unsupported and contradicted counts', () => {
+    const scorecard = computeConfidence({
+      ...baseInputs,
+      claimSupport: {
+        totalClaims: 4,
+        supportedClaims: 2,
+        unsupportedClaims: 2,
+        contradictedClaims: 1,
+      },
+    });
+
+    expect(scorecard.meta.warnings).toContainEqual(
+      expect.objectContaining({
+        code: 'input-out-of-range',
+        path: 'claimSupport',
+      }),
+    );
+  });
+
   test('throws for inconsistent claimSupport counts in strict validation mode', () => {
     expect(() =>
       computeConfidence(
@@ -105,5 +159,31 @@ describe('validation — input issues', () => {
         { validation: 'strict' },
       ),
     ).toThrow(/claimSupport/);
+  });
+
+  test('records out-of-range index integrity ratios as warnings', () => {
+    const scorecard = computeConfidence(
+      {
+        ...baseInputs,
+        indexIntegrity: {
+          sourceVersionMatchRatio: 1.2,
+          staleIndexedDocumentRatio: -0.1,
+        },
+      },
+      { indexIntegrity: {} },
+    );
+
+    expect(scorecard.meta.warnings).toContainEqual(
+      expect.objectContaining({
+        code: 'input-out-of-range',
+        path: 'indexIntegrity.sourceVersionMatchRatio',
+      }),
+    );
+    expect(scorecard.meta.warnings).toContainEqual(
+      expect.objectContaining({
+        code: 'input-out-of-range',
+        path: 'indexIntegrity.staleIndexedDocumentRatio',
+      }),
+    );
   });
 });
