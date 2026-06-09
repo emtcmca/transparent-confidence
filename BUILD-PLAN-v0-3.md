@@ -1,6 +1,6 @@
 # transparent-confidence v0.3 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **STATUS: COMPLETE** — All phases shipped in commit `8dbf6e8` (Prepare v0.3 release). All 412 tests pass. Acceptance criteria met. Merged to master and published as `transparent-confidence@0.3.0`.
 
 **Goal:** Build v0.3 of `transparent-confidence` as the bridge from a deterministic RAG confidence scorecard to a production-ready confidence layer with stricter signal policy, empirical calibration utilities, evaluator signal bridges, stronger retrieval diagnostics, and cleaner release hygiene.
 
@@ -593,12 +593,12 @@ Default config:
 
 ### Required Work
 
-- [ ] Remove `tests/sandbox/boardpath-scenarios.test.ts` from the tracked repository.
-- [ ] Add `tests/sandbox/` to `.gitignore` so package-external probes do not re-enter the TC test suite.
-- [ ] Confirm no package docs, scripts, or tests reference `BoardPath`, `boardpath`, or `tests/sandbox`. Use `rg --no-ignore` against the exact files/directories that would be packed so ignored local integration notes are not accidentally hidden from package checks.
+- [x] Remove `tests/sandbox/boardpath-scenarios.test.ts` from the tracked repository.
+- [x] Add `tests/sandbox/` to `.gitignore` so package-external probes do not re-enter the TC test suite.
+- [x] Confirm no package docs, scripts, or tests reference `BoardPath`, `boardpath`, or `tests/sandbox`. Use `rg --no-ignore` against the exact files/directories that would be packed so ignored local integration notes are not accidentally hidden from package checks.
 
-- [ ] Fix Biome formatting/check failures in `src/`, `tests/`, and `examples/`.
-- [ ] Add scripts:
+- [x] Fix Biome formatting/check failures in `src/`, `tests/`, and `examples/`.
+- [x] Add scripts:
 
 ```json
 {
@@ -607,7 +607,7 @@ Default config:
 }
 ```
 
-- [ ] Decide package contents:
+- [x] Decide package contents:
 - Preferred: add public `docs/*.md` files and `"examples"` to `package.json.files`.
   - Acceptable alternative: keep tarball small and update README links to GitHub URLs for docs/examples.
   - Do not leave README links pointing to files that are absent from the npm tarball unless they are GitHub URLs.
@@ -665,14 +665,14 @@ git commit -m "chore: restore v0.2 verification baseline"
 
 ### Required Work
 
-- [ ] Update `ALGORITHM_VERSION` to `0.3.0`.
-- [ ] Update `SCORECARD_SCHEMA_VERSION` to `0.3`.
-- [ ] Add new type exports listed in Public API Target.
-- [ ] Add `indexIntegrity` to `DimensionName`.
-- [ ] Add optional `dimensions.indexIntegrity`.
-- [ ] Add `indexIntegrity` to `meta.activeDimensions` only when active.
-- [ ] Keep `total`, `label`, `recommendedAction`, `tier1`, `tier2`, and existing dimensions backward-compatible.
-- [ ] Add tests that import every new public type/function from `src/index.ts`.
+- [x] Update `ALGORITHM_VERSION` to `0.3.0`.
+- [x] Update `SCORECARD_SCHEMA_VERSION` to `0.3`.
+- [x] Add new type exports listed in Public API Target.
+- [x] Add `indexIntegrity` to `DimensionName`.
+- [x] Add optional `dimensions.indexIntegrity`.
+- [x] Add `indexIntegrity` to `meta.activeDimensions` only when active.
+- [x] Keep `total`, `label`, `recommendedAction`, `tier1`, `tier2`, and existing dimensions backward-compatible.
+- [x] Add tests that import every new public type/function from `src/index.ts`.
 
 ### Tests
 
@@ -749,9 +749,9 @@ git commit -m "feat: add v0.3 public API surface"
 
 ### Required Work
 
-- [ ] Implement `preset` resolution.
-- [ ] Implement `signalPolicy` resolution.
-- [ ] Detect missing signals:
+- [x] Implement `preset` resolution.
+- [x] Implement `signalPolicy` resolution.
+- [x] Detect missing signals:
   - `answerRelevanceScore`
   - `faithfulnessScore`
   - `claimSupport`
@@ -765,15 +765,15 @@ git commit -m "feat: add v0.3 public API surface"
   - `contentHashes`
   - `candidateRanks`
   - `indexIntegrity`
-- [ ] Implement "one of" production support rule:
+- [x] Implement "one of" production support rule:
   - Production requires at least one of `faithfulnessScore` or valid `claimSupport`.
-- [ ] Add warning `required-signal-missing`.
-- [ ] Add warning `citation-quality-floor`.
-- [ ] Add action cascade integration:
+- [x] Add warning `required-signal-missing`.
+- [x] Add warning `citation-quality-floor`.
+- [x] Add action cascade integration:
   - `abstainWhenMissing` wins before score thresholds.
   - `reviewWhenMissing` wins before `answerAt`.
-- [ ] Preserve v0.2 behavior under `preset: 'legacy-v0.2'`.
-- [ ] Add README section explaining production preset.
+- [x] Preserve v0.2 behavior under `preset: 'legacy-v0.2'`.
+- [x] Add README section explaining production preset.
 
 ### Required Tests
 
@@ -854,24 +854,24 @@ git commit -m "feat: add production signal policy"
 
 ### Required Work
 
-- [ ] Add `DuplicateContentConfig`.
-- [ ] Add `RankPenaltyConfig`.
-- [ ] Add retrieval diagnostics:
+- [x] Add `DuplicateContentConfig`.
+- [x] Add `RankPenaltyConfig`.
+- [x] Add retrieval diagnostics:
   - `duplicateContentHashCount`
   - `rankedCandidateCount`
   - `missingRankCount`
   - `rankPenalty`
   - `duplicatePenalty`
-- [ ] Keep duplicate content diagnostic-only by default.
-- [ ] Keep rank diagnostic-only by default.
-- [ ] Add duplicate penalty when `duplicateContent.mode = 'penalize'`.
-- [ ] Add rank penalty when `rankPenalty.mode = 'penalize'`.
-- [ ] Validate config values:
+- [x] Keep duplicate content diagnostic-only by default.
+- [x] Keep rank diagnostic-only by default.
+- [x] Add duplicate penalty when `duplicateContent.mode = 'penalize'`.
+- [x] Add rank penalty when `rankPenalty.mode = 'penalize'`.
+- [x] Validate config values:
   - penalties are finite and non-negative.
   - max penalties are finite and non-negative.
   - `afterRank` is integer >= 1.
-- [ ] Add warning `duplicate-content`.
-- [ ] Add warning `rank-signal-missing`.
+- [x] Add warning `duplicate-content`.
+- [x] Add warning `rank-signal-missing`.
 
 ### Required Tests
 
@@ -962,18 +962,18 @@ git commit -m "feat: add retrieval duplicate and rank diagnostics"
 
 ### Required Work
 
-- [ ] Implement `analyzeCalibration`.
-- [ ] Validate calibration samples.
-- [ ] Generate default score bands.
-- [ ] Compute positive rate by band.
-- [ ] Compute positive rate by recommended action.
-- [ ] Recommend an action policy from targets:
+- [x] Implement `analyzeCalibration`.
+- [x] Validate calibration samples.
+- [x] Generate default score bands.
+- [x] Compute positive rate by band.
+- [x] Compute positive rate by recommended action.
+- [x] Recommend an action policy from targets:
   - `answerAt` should be the lowest threshold whose band meets `targetPrecisionForAnswer`.
   - `reviewAt` should remain at or below `answerAt`.
   - `abstainBelow` should be the highest threshold below which outcomes fail `targetRecallForAbstain`.
   - If sample size is too low, keep conservative defaults and emit `low-calibration-sample-size`.
-- [ ] Add warning `uncalibrated-score` to docs as a recommended production log warning, not a default scorer warning.
-- [ ] Add README section: "Calibration: turning score into local reliability."
+- [x] Add warning `uncalibrated-score` to docs as a recommended production log warning, not a default scorer warning.
+- [x] Add README section: "Calibration: turning score into local reliability."
 
 ### Required Tests
 
@@ -1048,14 +1048,14 @@ git commit -m "feat: add calibration analysis utilities"
 
 ### Required Work
 
-- [ ] Implement `mergeEvaluationSignals`.
-- [ ] Implement `fromRagasLike`.
-- [ ] Implement `fromDeepEvalLike`.
-- [ ] Implement `fromTruLensLike`.
-- [ ] Implement `fromCustomJudge`.
-- [ ] Add plain object field mapping tables to docs.
-- [ ] Return warnings for no recognized fields.
-- [ ] Never import external evaluator SDKs.
+- [x] Implement `mergeEvaluationSignals`.
+- [x] Implement `fromRagasLike`.
+- [x] Implement `fromDeepEvalLike`.
+- [x] Implement `fromTruLensLike`.
+- [x] Implement `fromCustomJudge`.
+- [x] Add plain object field mapping tables to docs.
+- [x] Return warnings for no recognized fields.
+- [x] Never import external evaluator SDKs.
 
 ### Field Mapping Targets
 
@@ -1160,24 +1160,24 @@ git commit -m "feat: add evaluator signal bridge"
 
 ### Required Work
 
-- [ ] Implement max 15 raw point dimension.
-- [ ] Add dimension breakdown with components:
+- [x] Implement max 15 raw point dimension.
+- [x] Add dimension breakdown with components:
   - `embeddingVersion`
   - `sourceVersionMatch`
   - `staleness`
   - `ingestionFailures`
   - `aclFilter`
   - `deletedSourceLeakage`
-- [ ] Add diagnostics for all raw input values.
-- [ ] Add warnings:
+- [x] Add diagnostics for all raw input values.
+- [x] Add warnings:
   - `index-integrity-incomplete`
   - `embedding-version-mismatch`
   - `acl-filter-unconfirmed`
   - `deleted-source-leakage`
-- [ ] Add to Tier 2 calculation when active.
-- [ ] Add to `meta.activeExtensions`.
-- [ ] Add to `meta.activeDimensions`.
-- [ ] Keep inactive when `config.indexIntegrity` is absent.
+- [x] Add to Tier 2 calculation when active.
+- [x] Add to `meta.activeExtensions`.
+- [x] Add to `meta.activeDimensions`.
+- [x] Keep inactive when `config.indexIntegrity` is absent.
 
 ### Required Tests
 
@@ -1243,30 +1243,30 @@ git commit -m "feat: add index integrity extension"
 
 ### Required README Sections
 
-- [ ] What the v0.3 score means.
-- [ ] What the v0.3 score does not mean.
-- [ ] v0.2 compatibility preset.
-- [ ] Production preset.
-- [ ] Signal policy reference.
-- [ ] Calibration utilities.
-- [ ] Evaluator signal bridge.
-- [ ] Retrieval duplicate/rank diagnostics.
-- [ ] Index integrity extension.
-- [ ] Package contents.
-- [ ] Release verification commands.
-- [ ] Updated API reference.
-- [ ] Updated warning code table.
-- [ ] Updated algorithm summary.
+- [x] What the v0.3 score means.
+- [x] What the v0.3 score does not mean.
+- [x] v0.2 compatibility preset.
+- [x] Production preset.
+- [x] Signal policy reference.
+- [x] Calibration utilities.
+- [x] Evaluator signal bridge.
+- [x] Retrieval duplicate/rank diagnostics.
+- [x] Index integrity extension.
+- [x] Package contents.
+- [x] Release verification commands.
+- [x] Updated API reference.
+- [x] Updated warning code table.
+- [x] Updated algorithm summary.
 
 ### Required Migration Guide Sections
 
-- [ ] Upgrade package version.
-- [ ] Decide preset: `legacy-v0.2`, `balanced-v0.3`, or `production-v0.3`.
-- [ ] If using strict production gating, provide `answerRelevanceScore` and either `faithfulnessScore` or `claimSupport`.
-- [ ] If using retrieval duplicate/rank penalties, add `contentHash` and `rank` to candidates.
-- [ ] If using index integrity, provide `inputs.indexIntegrity`.
-- [ ] If relying on npm package docs/examples, note that v0.3 includes them in the tarball.
-- [ ] Update tests for algorithm/schema version.
+- [x] Upgrade package version.
+- [x] Decide preset: `legacy-v0.2`, `balanced-v0.3`, or `production-v0.3`.
+- [x] If using strict production gating, provide `answerRelevanceScore` and either `faithfulnessScore` or `claimSupport`.
+- [x] If using retrieval duplicate/rank penalties, add `contentHash` and `rank` to candidates.
+- [x] If using index integrity, provide `inputs.indexIntegrity`.
+- [x] If relying on npm package docs/examples, note that v0.3 includes them in the tarball.
+- [x] Update tests for algorithm/schema version.
 
 ### Required Example Outputs
 
@@ -1327,12 +1327,12 @@ git commit -m "docs: document v0.3 production confidence workflows"
 
 ### Required Work
 
-- [ ] Set `package.json.version` to `0.3.0`.
-- [ ] Confirm `package-lock.json` version entries match `0.3.0`.
-- [ ] Confirm package has zero runtime dependencies.
-- [ ] Confirm new docs/examples are either included in package or linked to GitHub.
-- [ ] Confirm no generated tarball is left in the repo.
-- [ ] Confirm untracked files are intentional.
+- [x] Set `package.json.version` to `0.3.0`.
+- [x] Confirm `package-lock.json` version entries match `0.3.0`.
+- [x] Confirm package has zero runtime dependencies.
+- [x] Confirm new docs/examples are either included in package or linked to GitHub.
+- [x] Confirm no generated tarball is left in the repo.
+- [x] Confirm untracked files are intentional.
 
 ### Release Verification
 

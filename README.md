@@ -5,7 +5,7 @@
 [![npm version](https://img.shields.io/npm/v/transparent-confidence.svg)](https://www.npmjs.com/package/transparent-confidence)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![CI](https://github.com/emtcmca/transparent-confidence/actions/workflows/ci.yml/badge.svg)](https://github.com/emtcmca/transparent-confidence/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-408%20passing-brightgreen.svg)](https://github.com/emtcmca/transparent-confidence/actions)
+[![Tests](https://img.shields.io/badge/tests-412%20passing-brightgreen.svg)](https://github.com/emtcmca/transparent-confidence/actions)
 [![Zero dependencies](https://img.shields.io/badge/dependencies-0-brightgreen.svg)](package.json)
 
 > **Transparent Confidence™** is a scoring methodology that makes RAG answer quality auditable — every point on the 0–100 scale has an explicit reason attached to it.
@@ -307,17 +307,28 @@ return { answer, confidence: scorecard.total };
 
 ### Common warning codes
 
-| Code | Triggered when |
-|---|---|
-| `missing-conflict-signal` | Neither `hasConflict` nor `conflictingCandidateCount` provided |
-| `missing-faithfulness` | No `faithfulnessScore` or `claimSupport` provided |
-| `missing-answer-relevance` | `config.relevance.required = true` but `answerRelevanceScore` absent |
-| `missing-freshness-dates` | Freshness extension active but no candidates have `lastUpdated` |
-| `missing-corpus-count` | Corpus extension active but `corpusTypeCount` not provided |
-| `authority-unclassified` | Some candidates couldn't be classified against any authority tier |
-| `documents-silent` | `documentsSilent = true` — corpus has no content for this question |
-| `ambiguous-top-results` | Gap between top-1 and top-2 retrieval scores is smaller than the configured threshold |
-| `single-retrieval-method` | All candidates have only one retrieval method and `minConfirmedMethods > 1` |
+| Code | Severity | Triggered when |
+|---|---|---|
+| `missing-conflict-signal` | warn | Neither `hasConflict` nor `conflictingCandidateCount` provided |
+| `missing-faithfulness` | warn | No `faithfulnessScore` or `claimSupport` provided |
+| `missing-answer-relevance` | warn | `config.relevance.required = true` but `answerRelevanceScore` absent |
+| `missing-freshness-dates` | warn | Freshness extension active but no candidates have `lastUpdated` |
+| `missing-corpus-count` | warn | Corpus extension active but `corpusTypeCount` not provided |
+| `authority-unclassified` | warn | Some candidates couldn't be classified against any authority tier |
+| `documents-silent` | warn | `documentsSilent = true` — corpus has no content for this question |
+| `ambiguous-top-results` | warn | Gap between top-1 and top-2 retrieval scores is smaller than the configured threshold |
+| `single-retrieval-method` | warn | All candidates have only one retrieval method and `minConfirmedMethods > 1` |
+| `required-signal-missing` | warn | A signal listed in `signalPolicy.require` was not provided |
+| `citation-quality-floor` | warn | `citationCoverageScore` is below `signalPolicy.minCitationCoverageScore`, or `invalidCitationCount` exceeds `maxInvalidCitationCount` |
+| `invalid-citations` | warn | `invalidCitationCount` is 1 (−2 grounding penalty) or ≥ 2 (−5 penalty) |
+| `low-citation-coverage` | warn | `citationCoverageScore` is below 0.50 |
+| `duplicate-content` | info/warn | Candidates with duplicate `contentHash` values detected; severity is `warn` when `mode: 'penalize'` is active |
+| `rank-signal-missing` | info | Candidates missing `rank` while `rankPenalty.mode = 'penalize'` is active |
+| `low-calibration-sample-size` | warn | A calibration band has fewer samples than `config.minSamplesPerBand` |
+| `index-integrity-incomplete` | warn | An Index Integrity sub-signal was not provided (scores that sub-signal at 0) |
+| `embedding-version-mismatch` | warn | `actualEmbeddingModelVersion` does not match `expectedEmbeddingModelVersion` |
+| `acl-filter-unconfirmed` | warn | `aclFilterConfirmed` was not provided or false, and `requireAclFilterConfirmation` is true |
+| `deleted-source-leakage` | **error** | `deletedSourceLeakageCount > 0` — deleted source content appears in retrieval results |
 
 ### Validation modes
 
@@ -444,6 +455,7 @@ maxPossible = 65                      (core: grounding + retrieval + consistency
             + 20  (Authority active)
             + 15  (Corpus active)
             + 15  (Freshness active)
+            + 15  (Index Integrity active)
 ```
 
 ### Labels
@@ -461,7 +473,7 @@ Applied to the final normalized score:
 
 **Tier 1 — Answer Confidence:** Grounding + Retrieval + Consistency + Relevance (when active) + Authority (when active). Normalized independently to 0–100. Labels match composite scale.
 
-**Tier 2 — System Readiness:** Corpus + Freshness (when active). Normalized independently to 0–100. Uses separate labels: Complete / Good / Partial / Thin. Hidden (`null`) when neither extension is configured.
+**Tier 2 — System Readiness:** Corpus + Freshness + Index Integrity (when active). Normalized independently to 0–100. Uses separate labels: Complete / Good / Partial / Thin. Hidden (`null`) when none of these extensions are configured.
 
 ---
 
@@ -759,6 +771,7 @@ computeConfidence(inputs, {
 | authority | 20 |
 | corpus | 15 |
 | freshness | 15 |
+| indexIntegrity | 15 |
 
 ### How it works
 
@@ -890,6 +903,75 @@ Returns a scorer pre-bound to a config. Use when scoring many answers against th
 const scorer = createScorer({ corpus: { expectedTypeCount: 10 } });
 const s1 = scorer.compute(inputs1);
 const s2 = scorer.compute(inputs2);
+```
+
+---
+
+### `analyzeCalibration(samples, config?)`
+
+```typescript
+function analyzeCalibration(
+  samples: CalibrationSample[],
+  config?: CalibrationConfig,
+): CalibrationReport;
+```
+
+Offline utility. Takes historical `{ total, outcome, recommendedAction? }` records and returns score bands with empirical positive rates, an action summary, and a recommended `ActionPolicy`. Does not modify the scorer or change any thresholds at runtime.
+
+```typescript
+import { analyzeCalibration } from 'transparent-confidence';
+
+const report = analyzeCalibration(historicalSamples, {
+  minSamplesPerBand: 30,
+  targetPrecisionForAnswer: 0.9,   // tunes answerAt
+  targetRecallForAbstain: 0.8,     // tunes abstainBelow
+});
+
+console.log(report.recommendedPolicy);
+// { answerAt: 75, reviewAt: 45, abstainBelow: 45 }
+```
+
+`CalibrationSample.outcome` accepts `'correct' | 'incorrect' | 'accepted' | 'rejected' | 'escalated'`. Configure which outcomes are "positive" via `config.positiveOutcomes` (default: `['correct', 'accepted']`).
+
+---
+
+### `mergeEvaluationSignals(inputs, signals)`
+
+```typescript
+function mergeEvaluationSignals(
+  inputs: ScoringInputs,
+  signals: ExternalEvaluationSignals,
+): EvaluationSignalMergeResult;
+```
+
+Merges external evaluator signals into `ScoringInputs`. Existing fields on `inputs` are never overwritten — signals fill gaps only. Returns `{ inputs: ScoringInputs, warnings: ConfidenceWarning[] }`.
+
+---
+
+### `fromRagasLike(result)` / `fromDeepEvalLike(result)` / `fromTruLensLike(result)` / `fromCustomJudge(result)`
+
+```typescript
+function fromRagasLike(result: Record<string, unknown>): ExternalEvaluationSignals;
+function fromDeepEvalLike(result: Record<string, unknown>): ExternalEvaluationSignals;
+function fromTruLensLike(result: Record<string, unknown>): ExternalEvaluationSignals;
+function fromCustomJudge(result: Record<string, unknown>): ExternalEvaluationSignals;
+```
+
+Defensive adapters that extract `ExternalEvaluationSignals` from the plain-object output of common eval frameworks. Accept `Record<string, unknown>` — safe against unexpected shapes. Import no evaluator SDKs.
+
+| Function | Maps from | Fields extracted |
+|---|---|---|
+| `fromRagasLike` | RAGAs result dict | `faithfulness`, `answer_relevancy` / `answerRelevance` |
+| `fromDeepEvalLike` | DeepEval metric result | `faithfulnessScore`, `answerRelevancyScore`, generic `score` when `metric === 'faithfulness'` |
+| `fromTruLensLike` | TruLens feedback result | `groundedness` → `faithfulnessScore`, `answer_relevance` |
+| `fromCustomJudge` | Any custom judge output | All `ExternalEvaluationSignals` fields by exact key name |
+
+```typescript
+import { fromRagasLike, mergeEvaluationSignals, computeConfidence } from 'transparent-confidence';
+
+const signals = fromRagasLike(ragasResult);
+const { inputs: enrichedInputs } = mergeEvaluationSignals(inputs, signals);
+const scorecard = computeConfidence(enrichedInputs, config);
 ```
 
 ---
