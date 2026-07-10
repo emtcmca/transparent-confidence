@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.1] - 2026-07-10
+
+Documentation-only release. No runtime code changes — `algorithmVersion` remains `0.3.0`, `schemaVersion` remains `0.3`.
+
+### Added
+
+- Zero-install StackBlitz playground (`playground/`) with four scenarios running the published package: strong answer, conflicting evidence, weak retrieval, and `production-v0.3` required-signal gating
+- README: "Try it in your browser" StackBlitz link, Project Status section, scoring pipeline diagram, and example scorecard output image
+- `CONTRIBUTING.md` — development setup, hard constraints (zero dependencies, determinism, explainability, versioned algorithm), testing expectations, and PR checklist
+
+---
+
 ## [0.3.0] - 2026-06-08
 
 ### Added

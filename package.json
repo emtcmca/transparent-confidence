@@ -1,6 +1,6 @@
 {
   "name": "transparent-confidence",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Deterministic confidence scorecards for RAG systems with signal policy, calibration, evaluator bridges, and index integrity",
   "author": "Eric Tetzlaff",
   "license": "Apache-2.0",
