@@ -1,0 +1,12 @@
+{
+  "name": "transparent-confidence-playground",
+  "description": "Runnable playground for the transparent-confidence npm package — four scored RAG scenarios",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "transparent-confidence": "^0.3.0"
+  }
+}
