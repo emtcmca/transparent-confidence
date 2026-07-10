@@ -8,6 +8,8 @@
 [![Tests](https://img.shields.io/badge/tests-412%20passing-brightgreen.svg)](https://github.com/emtcmca/transparent-confidence/actions)
 [![Zero dependencies](https://img.shields.io/badge/dependencies-0-brightgreen.svg)](package.json)
 
+[![Open in StackBlitz](https://developer.stackblitz.com/img/open_in_stackblitz.svg)](https://stackblitz.com/github/emtcmca/transparent-confidence/tree/master/playground?file=index.js)
+
 > **Transparent Confidence™** is a scoring methodology that makes RAG answer quality auditable — every point on the 0–100 scale has an explicit reason attached to it.
 
 ---
@@ -16,8 +18,25 @@
 
 The score is not a probability of correctness unless you calibrate it against your own labeled outcomes. The package does not retrieve documents, call an LLM, or verify citations by itself.
 
+**[▶ Try it in your browser](https://stackblitz.com/github/emtcmca/transparent-confidence/tree/master/playground?file=index.js)** — zero-install StackBlitz playground. Four scenarios (strong answer, conflicting evidence, weak retrieval, production gating) running the published npm package. Boots in seconds.
+
+## Project Status
+
+| | |
+|---|---|
+| **Current release** | `v0.3.0` — published to npm, stable, production-ready |
+| **Algorithm / schema** | `algorithmVersion 0.3.0` · `schemaVersion 0.3` |
+| **Tests** | 412 passing across 19 files · coverage targets ≥ 90% line / ≥ 95% function / ≥ 85% branch |
+| **Dimensions** | 3 core (always on) + 5 optional (Relevance, Authority, Corpus, Freshness, Index Integrity) |
+| **Runtime dependencies** | 0 (hard architectural constraint) |
+| **Node** | ≥ 20 · dual ESM + CJS output with TypeScript declarations |
+| **Next milestone** | `v1.0` — API stabilization; candidate scope in [Roadmap](#roadmap) |
+
+v0.3.0 is the current published line and is stable. Work now targets a `v1.0` release that locks the public API surface. The [Roadmap](#roadmap) lists candidate features under evaluation for v1.0; none are committed yet.
+
 ## Contents
 
+- [Project Status](#project-status)
 - [The Problem](#the-problem)
 - [The Solution](#the-solution)
 - [vs. Alternatives](#vs-alternatives)
@@ -73,6 +92,8 @@ RAG pipelines ship answers. They don't ship confidence.
 - **Machine-readable warnings** — structured warning codes for dashboards and alerting
 - **Zero required config** — three core dimensions work out of the box; optional extensions activate on demand
 - **Zero dependencies** — no ML stack, no server, no model calls; runs inline in any Node.js 20+ process
+
+![The scoring pipeline: signals you already have, 3 core + 5 optional dimensions, versioned scorecard, deterministic action policy](https://raw.githubusercontent.com/emtcmca/transparent-confidence/master/docs/assets/pipeline-diagram.png)
 
 ---
 
@@ -1281,6 +1302,10 @@ Run any example:
 npx tsx examples/basic-rag.ts
 ```
 
+Output of `legal-docs.ts` — a 74/100 scorecard where a missing conflict signal forces `review` despite a decent total:
+
+![Terminal output of legal-docs.ts: total 74/100, label Moderate (amber), recommended action review, per-dimension breakdown, and two structured warnings](https://raw.githubusercontent.com/emtcmca/transparent-confidence/master/docs/assets/scorecard-terminal.png)
+
 ---
 
 ## Upgrading from 0.2.x to 0.3.0
@@ -1339,7 +1364,9 @@ computeConfidence({ supportLevel: 'high', corpusTypeCount: 4, candidates }, {
 
 ## Roadmap
 
-Planned for future versions — none of these are started or committed:
+**Current line:** `v0.3.0` (published, stable). **Next milestone:** `v1.0` — stabilize and lock the public API surface for a 1.0 commitment.
+
+Candidate features under evaluation for v1.0 — none are started or committed; all remain subject to the zero-runtime-dependency constraint:
 
 - **Batch scoring** — `computeAll(inputs[])` returning sorted scorecards for comparison
 - **Score explanation renderer** — format `DimensionScore.explanation` fields into structured Markdown or HTML for display
@@ -1350,6 +1377,8 @@ Planned for future versions — none of these are started or committed:
 ---
 
 ## Contributing
+
+Full guide: [`CONTRIBUTING.md`](CONTRIBUTING.md). Looking for a starting point? Check the [`good first issue`](https://github.com/emtcmca/transparent-confidence/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) label.
 
 1. Clone the repo and install dependencies:
    ```bash
